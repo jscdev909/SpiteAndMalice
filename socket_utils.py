@@ -1,3 +1,5 @@
+import socket
+
 HEADER_SIZE = 4
 
 def recv_all(sock: socket.socket, n: int):
