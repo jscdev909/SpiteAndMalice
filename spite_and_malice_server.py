@@ -5,12 +5,12 @@ import time
 import re
 import random
 from collections import deque
-from card import Card, CardPosition, send_cards, receive_cards, deal, create_deck
+from card import CardPosition, send_cards, receive_cards, deal, create_deck
 from socket_utils import receive_message, send_message
+from path_utils import get_path
 
-
-HOST = '127.0.0.1'
-PORT = 65432
+HOST = '0.0.0.0'
+PORT = 43210
 
 connection_count = 0
 current_turn = 0
@@ -133,7 +133,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 if not deck and not payoff_pile1 and not payoff_pile2 and not draw_pile:
                     # Got the lock, create the deck, payoff piles and draw pile
                     print(f"[*] Creating the deck (player {player_number} thread)...", flush=True)
-                    deck = create_deck("assets/card_faces")
+                    deck = create_deck(get_path("assets/card_faces"))
                     print(f"[*] Creating the payoff piles and draw pile (player {player_number} thread)...", flush=True)
                     payoff_pile1, payoff_pile2, draw_pile = deal(deck)
                 else:
