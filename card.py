@@ -4,6 +4,8 @@ import pygame
 import socket
 import struct
 import pickle
+import random
+import os
 from socket_utils import recv_all, HEADER_SIZE
 
 class CardPosition(Enum):
@@ -18,6 +20,7 @@ class Card:
         self.position = CardPosition.FACE_DOWN
         self.surface = None
         self.rect = None
+        self.order = 0
 
         if self.name[0].isdigit():
             if self.name[:2].isdigit():
@@ -42,11 +45,11 @@ class Card:
         self.surface = pygame.surfarray.make_surface(self.surface_array)
 
 
-def receive_cards(sock: socket.socket, cards_to_receive: int) -> list[Card]:
+def receive_cards(sock: socket.socket, num_cards_to_receive: int) -> list[Card]:
 
     received_cards = []
 
-    for _ in range(0, cards_to_receive, 1):
+    for _ in range(0, num_cards_to_receive, 1):
 
         # Receive message length
         raw_message_length = recv_all(sock, HEADER_SIZE)
@@ -78,3 +81,44 @@ def send_cards(sock: socket.socket, cards_to_send: list[Card]) -> None:
         pickled_card = pickle.dumps(sent_card)
         message_length = struct.pack('!I', len(pickled_card))
         sock.sendall(message_length + pickled_card)
+
+
+def create_deck(directory: str) -> list[Card]:
+    cards = []
+    for _ in range(0, 4, 1):
+        for filename in os.listdir(directory):
+            image_surface = pygame.image.load(os.path.join(directory, filename))
+            image_surface = pygame.transform.scale(image_surface, (100, 150))
+            cards.append(Card(os.path.splitext(filename)[0], pygame.surfarray.array3d(image_surface)))
+
+    random.shuffle(cards)
+    return cards
+
+
+def deal(all_cards: list[Card]) -> tuple[list[Card], list[Card], list[Card]]:
+    pile1 = []
+    pile2 = []
+
+    for index in range(0, 20, 1):
+        if index == 19:
+            dealt_card = all_cards.pop()
+            dealt_card.position = CardPosition.FACE_UP
+            dealt_card.order = index
+            pile1.append(dealt_card)
+            dealt_card = all_cards.pop()
+            dealt_card.position = CardPosition.FACE_UP
+            dealt_card.order = index
+            pile2.append(dealt_card)
+        else:
+            dealt_card = all_cards.pop()
+            dealt_card.order = index
+            pile1.append(dealt_card)
+            dealt_card = all_cards.pop()
+            dealt_card.order = index
+            pile2.append(dealt_card)
+
+    remaining_cards = all_cards
+    for index, remaining_card in enumerate(list(remaining_cards)):
+        remaining_card.order = index
+
+    return pile1, pile2, remaining_cards
