@@ -91,6 +91,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                     # First receive number of new cards added to the draw pile
                     additional_cards_length = receive_message(client_socket)
+                    print("DEBUG 18287827", flush=True)
+                    print(additional_cards_length, flush=True) # DEBUG
                     if additional_cards_length and additional_cards_length.strip().isdigit():
                         additional_cards_length = int(additional_cards_length.strip())
                     else:
@@ -843,6 +845,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
         print(f"[*] Error handling client {client_address[0]}:{client_address[1]}: {se}", flush=True)
     except ConnectionResetError:
         print(f"[*] Existing connection forcibly closed by client", flush=True)
+    except BrokenPipeError:
+        print(f"[*] Client disconnected in the middle of an operation", flush=True)
     finally:
         client_socket.close()
         connection_count_lock.acquire()
