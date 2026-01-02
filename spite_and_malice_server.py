@@ -91,8 +91,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                     # First receive number of new cards added to the draw pile
                     additional_cards_length = receive_message(client_socket)
-                    print("DEBUG 18287827", flush=True)
-                    print(additional_cards_length, flush=True) # DEBUG
                     if additional_cards_length and additional_cards_length.strip().isdigit():
                         additional_cards_length = int(additional_cards_length.strip())
                     else:
