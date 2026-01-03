@@ -12,6 +12,10 @@ from enum import Enum
 from pathlib import Path
 from input_box import InputBox
 
+class SoundOption(Enum):
+    DISABLED = 0,
+    ENABLED = 1
+
 class SetupStatus(Enum):
     UNSET = 0,
     CONNECTING_TO_SERVER = 1,
@@ -60,9 +64,12 @@ port = 0
 player_number = 0
 player_name = ""
 opponent_player = 0
+opponent_player_name = ""
 payoff_pile1 = []
 payoff_pile2 = []
 draw_pile = []
+
+sound_option = SoundOption.ENABLED
 
 initial_setup_status = SetupStatus.UNSET
 initial_setup_error_status = SetupErrorStatus.UNSET
@@ -74,11 +81,11 @@ reshuffle_draw_pile_error_status = ShuffleErrorStatus.UNSET
 def initial_setup(server_socket: socket.socket):
 
     global player_number, player_name, opponent_player, initial_setup_status, initial_setup_error_status
-    global payoff_pile1, payoff_pile2, draw_pile, host, port
+    global payoff_pile1, payoff_pile2, draw_pile, host, port, opponent_player_name
 
     # Connect to the server
     initial_setup_status = SetupStatus.CONNECTING_TO_SERVER
-    server_socket.settimeout(10)
+    server_socket.settimeout(30)
 
     try:
         server_socket.connect((host, port))
@@ -101,6 +108,7 @@ def initial_setup(server_socket: socket.socket):
         initial_setup_status = SetupStatus.ERROR
         initial_setup_error_status = SetupErrorStatus.GAME_LOBBY_FULL
         return
+
 
     if player_number == 1:
         opponent_player = 2
@@ -125,6 +133,11 @@ def initial_setup(server_socket: socket.socket):
                 else:
                     pygame.time.wait(2000)
 
+    send_message(server_socket, f"What is player {opponent_player}'s name?")
+    opponent_player_name = receive_message(server_socket)
+
+    if not opponent_player_name:
+        raise ClientError("Received empty opponent player name from server")
 
     initial_setup_status = SetupStatus.RECEIVING_CARD_DATA
     send_message(server_socket, "Awaiting card data")
@@ -140,9 +153,14 @@ def initial_setup(server_socket: socket.socket):
             initial_setup_status = SetupStatus.ERROR
             initial_setup_error_status = SetupErrorStatus.PAYOFF_PILE1_RECEIVE_ERROR
             return
+        # DEBUG
         print("Payoff pile 1 received on client:")
         for payoff_pile_card in payoff_pile1:
             print(f"{payoff_pile_card.name}:{payoff_pile_card.order}")
+    else:
+        initial_setup_status = SetupStatus.ERROR
+        initial_setup_error_status = SetupErrorStatus.PAYOFF_PILE1_RECEIVE_ERROR
+        return
 
     # Receive payoff pile 2
     print("Receiving payoff pile 2")
@@ -154,9 +172,14 @@ def initial_setup(server_socket: socket.socket):
             initial_setup_status = SetupStatus.ERROR
             initial_setup_error_status = SetupErrorStatus.PAYOFF_PILE2_RECEIVE_ERROR
             return
+        # DEBUG
         print("Payoff pile 2 received on client:")
         for payoff_pile_card in payoff_pile2:
             print(f"{payoff_pile_card.name}:{payoff_pile_card.order}")
+    else:
+        initial_setup_status = SetupStatus.ERROR
+        initial_setup_error_status = SetupErrorStatus.PAYOFF_PILE2_RECEIVE_ERROR
+        return
 
     # Receive draw pile
     print("Receiving draw pile")
@@ -168,9 +191,14 @@ def initial_setup(server_socket: socket.socket):
             initial_setup_status = SetupStatus.ERROR
             initial_setup_error_status = SetupErrorStatus.DRAW_PILE_RECEIVE_ERROR
             return
+        # DEBUG
         print("Draw pile received on client:")
         for draw_pile_card in draw_pile:
             print(f"{draw_pile_card.name}:{draw_pile_card.order}")
+    else:
+        initial_setup_status = SetupStatus.ERROR
+        initial_setup_error_status = SetupErrorStatus.DRAW_PILE_RECEIVE_ERROR
+        return
 
     initial_setup_status = SetupStatus.OTHER_PLAYER_STATUS_CHECK
     send_message(server_socket, "Is the other player still connected?")
@@ -195,7 +223,7 @@ def initial_setup(server_socket: socket.socket):
 
 def reshuffle_draw_pile(server_socket: socket.socket, cards_to_shuffle: list[Card]):
 
-    global draw_pile, player_number, reshuffle_draw_pile_status, reshuffle_draw_pile_error_status
+    global draw_pile, player_number, reshuffle_draw_pile_status, reshuffle_draw_pile_error_status, sound_option
 
     reshuffle_draw_pile_status = ShuffleStatus.IN_PROGRESS
 
@@ -206,8 +234,7 @@ def reshuffle_draw_pile(server_socket: socket.socket, cards_to_shuffle: list[Car
     send_message(server_socket, str(len(draw_pile) + len(cards_to_shuffle)))
 
     # DEBUG
-    print(
-        f"New draw pile length sent to server from client {player_number}: {str(len(draw_pile) + len(cards_to_shuffle))}")
+    print(f"New draw pile length sent to server from client {player_number}: {str(len(draw_pile) + len(cards_to_shuffle))}")
 
     response = receive_message(server_socket)
     if response == "Ready to receive new draw pile cards":
@@ -240,19 +267,19 @@ def reshuffle_draw_pile(server_socket: socket.socket, cards_to_shuffle: list[Car
     for draw_pile_card in draw_pile:
         print(f"{draw_pile_card.name}: {draw_pile_card.order}")
 
-    shuffle_sound_effect = pygame.mixer.Sound(
-        get_path("assets/shuffle_cards.wav"))
-    shuffle_sound_effect.play()
+    if sound_option == SoundOption.ENABLED:
+        shuffle_sound_effect = pygame.mixer.Sound(get_path("assets/shuffle_cards.wav"))
+        shuffle_sound_effect.play()
 
     reshuffle_draw_pile_status = ShuffleStatus.COMPLETE
 
     return
 
 
-def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> bool:
+def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
     global payoff_pile1, payoff_pile2, draw_pile, player_number, opponent_player
-    global reshuffle_draw_pile_status, reshuffle_draw_pile_error_status
+    global reshuffle_draw_pile_status, reshuffle_draw_pile_error_status, sound_option
 
     socket_closed = False
 
@@ -280,10 +307,12 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
     build_piles = [[], [], [], []]
     build_piles_rects = [None, None, None, None]
 
-    card_back = pygame.image.load(
-        get_path("assets/card_back_red.png")).convert_alpha()
+    card_back = pygame.image.load(get_path("assets/card_back_red.png")).convert_alpha()
     card_back = pygame.transform.scale(card_back, (100, 150))
     card_back_rect = card_back.get_rect()
+
+    sound_option_surface = pygame.image.load(get_path("assets/sound_on.png")).convert_alpha()
+    sound_option_rect = sound_option_surface.get_rect()
 
     font = pygame.font.SysFont("Arial", 30)
     game_result_font = pygame.font.SysFont("Arial", 60)
@@ -296,6 +325,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
     original_dragging_x = 0
     original_dragging_y = 0
 
+    network_timer = 20
 
     running = True
 
@@ -304,10 +334,15 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
         clock.tick(FPS)
 
         if reshuffle_draw_pile_status == ShuffleStatus.UNSET:
-            send_message(server_socket, "Is the other player still connected?")
-            data = receive_message(server_socket)
-            if data == "No":
-                raise ClientError("Other player disconnected!")
+
+            if network_timer == 0:
+                send_message(server_socket, "Is the other player still connected?")
+                data = receive_message(server_socket)
+                if data == "No":
+                    raise ClientError("Other player disconnected!")
+                network_timer = 20
+            else:
+                network_timer -= 1
 
             if current_turn == 0:
                 send_message(server_socket, "Whose turn is it?")
@@ -714,42 +749,34 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
                                     raise ClientError("Issue syncing cards with the server")
 
 
-        cards_to_shuffle = []
-        if len(build_piles[0]) == 12:
-            cards_to_shuffle += build_piles[0]
-            build_piles[0] = []
-            draw_pile_needs_to_be_reshuffled = True
-        if len(build_piles[1]) == 12:
-            cards_to_shuffle += build_piles[1]
-            build_piles[1] = []
-            draw_pile_needs_to_be_reshuffled = True
-        if len(build_piles[2]) == 12:
-            cards_to_shuffle += build_piles[2]
-            build_piles[2] = []
-            draw_pile_needs_to_be_reshuffled = True
-        if len(build_piles[3]) == 12:
-            cards_to_shuffle += build_piles[3]
-            build_piles[3] = []
-            draw_pile_needs_to_be_reshuffled = True
-
-        if draw_pile_needs_to_be_reshuffled:
-
-            shuffle_deck_thread = threading.Thread(target=reshuffle_draw_pile, args=(server_socket, cards_to_shuffle))
-            shuffle_deck_thread.start()
-            draw_pile_needs_to_be_reshuffled = False
-
-
         if not current_hand and current_turn == player_number and reshuffle_draw_pile_status == ShuffleStatus.UNSET:
             send_message(server_socket, f"Player {player_number} draws 5 cards")
             for _ in range(0, 5, 1):
                 current_hand.append(draw_pile.pop())
-            draw_cards_sound_effect = pygame.mixer.Sound(get_path("assets/dealing_cards.wav"))
-            draw_cards_sound_effect.play()
+
+            if sound_option == SoundOption.ENABLED:
+                draw_cards_sound_effect = pygame.mixer.Sound(get_path("assets/dealing_cards.wav"))
+                draw_cards_sound_effect.play()
+
             draggable_cards_set = False
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    mouse_x, mouse_y = pygame.mouse.get_pos()
+                    if sound_option_rect.collidepoint(mouse_x, mouse_y):
+                        if sound_option == SoundOption.ENABLED:
+                            sound_option = SoundOption.DISABLED
+                            sound_option_surface = pygame.image.load(get_path("assets/sound_off.png")).convert_alpha()
+                            sound_option_rect = sound_option_surface.get_rect()
+                        elif sound_option == SoundOption.DISABLED:
+                            sound_option = SoundOption.ENABLED
+                            sound_option_surface = pygame.image.load(get_path("assets/sound_on.png")).convert_alpha()
+                            sound_option_rect = sound_option_surface.get_rect()
+
 
             if event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
@@ -1265,12 +1292,18 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
                             currently_dragging_card = False
                             card_being_dragged = None
 
+        if sound_option_rect.collidepoint(pygame.mouse.get_pos()):
+            sound_option_surface = pygame.transform.scale(sound_option_surface, (60, 60))
+            sound_option_rect = sound_option_surface.get_rect()
+        else:
+            sound_option_surface = pygame.transform.scale(sound_option_surface, (72, 72))
+            sound_option_rect = sound_option_surface.get_rect()
+
         if pygame.mouse.get_pressed()[0]:
 
             mouse_x, mouse_y = pygame.mouse.get_pos()
             for card in draggable_cards:
                 if card.rect.collidepoint(mouse_x, mouse_y) and not currently_dragging_card:
-                    print("in here 10 - client")
                     original_dragging_x = card.rect.x
                     original_dragging_y = card.rect.y
                     card.rect.centerx = mouse_x
@@ -1437,32 +1470,37 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
             card_back_rect.y = 0
             display_surface.blit(card_back, card_back_rect)
 
-        player_number1_text = font.render("Player 1", True, WHITE, DARK_GREEN)
-        player_number1_rect = player_number1_text.get_rect()
-        player_number2_text = font.render("Player 2", True, WHITE, DARK_GREEN)
-        player_number2_rect = player_number2_text.get_rect()
         if player_number == 1:
+            player_number1_text = font.render(f"Player 1\n({player_name})", True, WHITE, DARK_GREEN)
+            player_number1_rect = player_number1_text.get_rect()
+            player_number2_text = font.render(f"Player 2\n({opponent_player_name})", True, WHITE, DARK_GREEN)
+            player_number2_rect = player_number2_text.get_rect()
             player_number1_rect.centerx = WINDOW_WIDTH - 100
             player_number1_rect.centery = WINDOW_HEIGHT - 100
             player_number2_rect.centerx = 100
             player_number2_rect.centery = 100
+            display_surface.blit(player_number1_text, player_number1_rect)
+            display_surface.blit(player_number2_text, player_number2_rect)
         elif player_number == 2:
+            player_number1_text = font.render(f"Player 1\n({opponent_player_name})", True, WHITE, DARK_GREEN)
+            player_number1_rect = player_number1_text.get_rect()
+            player_number2_text = font.render(f"Player 2\n({player_name})", True, WHITE, DARK_GREEN)
+            player_number2_rect = player_number2_text.get_rect()
             player_number1_rect.centerx = 100
             player_number1_rect.centery = 100
             player_number2_rect.centerx = WINDOW_WIDTH - 100
             player_number2_rect.centery = WINDOW_HEIGHT - 100
-
-        display_surface.blit(player_number1_text, player_number1_rect)
-        display_surface.blit(player_number2_text, player_number2_rect)
+            display_surface.blit(player_number1_text, player_number1_rect)
+            display_surface.blit(player_number2_text, player_number2_rect)
 
         if current_turn != 0:
-            current_turn_text = font.render(f"Current turn:\n   Player {current_turn}", True, WHITE, DARK_GREEN)
+            current_turn_text = font.render(f"Current turn:\nPlayer {current_turn}\n({player_name})", True, WHITE, DARK_GREEN)
             current_turn_rect = current_turn_text.get_rect()
             current_turn_rect.right = WINDOW_WIDTH - 25
             current_turn_rect.y = WINDOW_HEIGHT // 2
             display_surface.blit(current_turn_text, current_turn_rect)
         else:
-            current_turn_text = font.render(f"Current turn:\n   Player {last_turn}", True, WHITE, DARK_GREEN)
+            current_turn_text = font.render(f"Current turn:\nPlayer {last_turn}\n({player_name})", True, WHITE, DARK_GREEN)
             current_turn_rect = current_turn_text.get_rect()
             current_turn_rect.right = WINDOW_WIDTH - 25
             current_turn_rect.y = WINDOW_HEIGHT // 2
@@ -1526,13 +1564,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
         draw_pile_remaining_cards_rect.y = WINDOW_HEIGHT // 2
         display_surface.blit(draw_pile_remaining_cards_text, draw_pile_remaining_cards_rect)
 
-        if reshuffle_draw_pile_status != ShuffleStatus.UNSET:
-            if reshuffle_draw_pile_status == ShuffleStatus.IN_PROGRESS:
-                reshuffling_text = font.render("Reshuffling draw pile, please wait...", True, WHITE, DARK_GREEN)
-                reshuffling_rect = reshuffling_text.get_rect()
-                reshuffling_rect.centerx = WINDOW_WIDTH // 2
-                reshuffling_rect.centery = WINDOW_HEIGHT // 2
-                display_surface.blit(reshuffling_text, reshuffling_rect)
+        sound_option_rect.centerx = WINDOW_WIDTH - 100
+        sound_option_rect.centery = WINDOW_HEIGHT // 2 - 150
+        display_surface.blit(sound_option_surface, sound_option_rect)
+
+        if reshuffle_draw_pile_status == ShuffleStatus.IN_PROGRESS:
+            reshuffling_text = font.render("Reshuffling draw pile, please wait...", True, WHITE, DARK_GREEN)
+            reshuffling_rect = reshuffling_text.get_rect()
+            reshuffling_rect.centerx = WINDOW_WIDTH // 2
+            reshuffling_rect.centery = WINDOW_HEIGHT // 2
+            display_surface.blit(reshuffling_text, reshuffling_rect)
 
         # Win / lose / stalemate conditions
         if ((not payoff_pile1 and player_number == 1) or (not payoff_pile2 and player_number == 2) or
@@ -1569,13 +1610,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
 
         pygame.display.update()
 
-        if first_turn:
-            # Let the shuffle sound effect play
-            shuffle_sound_effect = pygame.mixer.Sound(get_path("assets/shuffle_cards.wav"))
-            shuffle_sound_effect.play()
-            pygame.time.wait(1000)
-            first_turn = False
-
         if game_result_determined:
             server_socket.close()
             socket_closed = True
@@ -1586,7 +1620,39 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> b
                         paused = False
             break
 
-    return socket_closed
+        cards_to_shuffle = []
+        if len(build_piles[0]) == 12:
+            cards_to_shuffle += build_piles[0]
+            build_piles[0] = []
+            draw_pile_needs_to_be_reshuffled = True
+        if len(build_piles[1]) == 12:
+            cards_to_shuffle += build_piles[1]
+            build_piles[1] = []
+            draw_pile_needs_to_be_reshuffled = True
+        if len(build_piles[2]) == 12:
+            cards_to_shuffle += build_piles[2]
+            build_piles[2] = []
+            draw_pile_needs_to_be_reshuffled = True
+        if len(build_piles[3]) == 12:
+            cards_to_shuffle += build_piles[3]
+            build_piles[3] = []
+            draw_pile_needs_to_be_reshuffled = True
+
+        if draw_pile_needs_to_be_reshuffled:
+
+            shuffle_deck_thread = threading.Thread(target=reshuffle_draw_pile, args=(server_socket, cards_to_shuffle), daemon=True)
+            shuffle_deck_thread.start()
+            draw_pile_needs_to_be_reshuffled = False
+
+        if first_turn:
+            if sound_option == SoundOption.ENABLED:
+                shuffle_sound_effect = pygame.mixer.Sound(get_path("assets/shuffle_cards.wav"))
+                shuffle_sound_effect.play()
+                pygame.time.wait(1000)
+            first_turn = False
+
+    if not socket_closed:
+        server_socket.close()
 
 
 def main():
@@ -1604,7 +1670,6 @@ def main():
     verified_name = False
     verified_server_ip = False
     verified_server_port = False
-    write_config_file = True
 
     server_ip_pattern = r"^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$"
 
@@ -1618,12 +1683,11 @@ def main():
         unknown_os = True
         config_file_path = Path()
 
-    name_input_box = InputBox(425, 300, 300, 50)
+    name_input_box = InputBox(425, 300, 175, 50)
     server_ip_input_box = InputBox(425, 400, 300, 50)
     server_port_input_box = InputBox(425, 500, 150, 50)
 
     if config_file_path.exists():
-        print(config_file_path) # DEBUG
         with open(config_file_path, "rb") as config_file:
             data = tomllib.load(config_file)
         if ("name" in data and data["name"] and "server_ip" in data and
@@ -1631,8 +1695,7 @@ def main():
             "server_port" in data and 32768 < data["server_port"] < 65535):
             name_input_box.text = data["name"]
             server_ip_input_box.text = data["server_ip"]
-            server_port_input_box.text = data["server_port"]
-            write_config_file = False
+            server_port_input_box.text = str(data["server_port"])
 
     active_button_inner_color = (0, 75, 0)
     active_button_outer_color = (0, 75, 0)
@@ -1675,7 +1738,6 @@ def main():
             elif not server_port_input_box.text:
                 input_error_message = "Please enter a server port"
             elif name_input_box.text and server_ip_input_box.text and server_port_input_box.text:
-                print(name_input_box.text)
                 verified_name = True
 
                 if server_ip_input_box.text:
@@ -1683,7 +1745,6 @@ def main():
                     ip_match = re.search(server_ip_pattern, server_ip_input_box.text)
 
                     if ip_match:
-                        print(ip_match.group())
                         verified_server_ip = True
                     else:
                         input_error_message = "Please enter a valid IP address"
@@ -1691,18 +1752,18 @@ def main():
                 if server_port_input_box.text and verified_server_ip:
                     if server_port_input_box.text.isdigit():
                         if 32768 <= int(server_port_input_box.text) <= 65535:
-                            print(server_port_input_box.text)
                             verified_server_port = True
                         else:
                             input_error_message = "Please enter a valid port number\n             (32768-65535)"
 
                 if verified_name and verified_server_ip and verified_server_port:
-                    if write_config_file and not unknown_os:
+                    if not unknown_os:
                         config_file_path.parent.mkdir(parents=True, exist_ok=True)
                         with open(config_file_path, "w") as config_file:
-                            config_file.write(f"name = {name_input_box.text}\n")
-                            config_file.write(f"server_ip = {server_ip_input_box.text}\n")
+                            config_file.write(f"name = \"{name_input_box.text}\"\n")
+                            config_file.write(f"server_ip = \"{server_ip_input_box.text}\"\n")
                             config_file.write(f"server_port = {server_port_input_box.text}\n")
+                    player_name = name_input_box.text
                     host = server_ip_input_box.text
                     port = int(server_port_input_box.text)
                     getting_user_input = False
@@ -1753,11 +1814,11 @@ def main():
 
         pygame.display.update()
 
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     if not user_quit_game:
         try:
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-            initial_setup_thread = threading.Thread(target=initial_setup, args=(server_socket,))
+            initial_setup_thread = threading.Thread(target=initial_setup, args=(server_socket,), daemon=True)
             initial_setup_thread.start()
 
             performing_setup = True
@@ -1801,28 +1862,28 @@ def main():
 
             if (initial_setup_status == SetupStatus.COMPLETE and
                 initial_setup_error_status == SetupErrorStatus.UNSET and not user_quit_game):
-                socket_closed = run_game(server_socket, display_surface)
-                if not socket_closed:
-                    server_socket.close()
+                run_game(server_socket, display_surface)
             else:
-                if initial_setup_error_status == SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER:
-                    raise ClientError(f"Could not connect to server {host}:{port}")
-                elif initial_setup_error_status == SetupErrorStatus.GAME_LOBBY_FULL:
-                    raise ClientError("Game lobby full!")
-                elif initial_setup_error_status == SetupErrorStatus.PAYOFF_PILE1_RECEIVE_ERROR:
-                    raise ClientError("Error receiving payoff pile 1 from server")
-                elif initial_setup_error_status == SetupErrorStatus.PAYOFF_PILE2_RECEIVE_ERROR:
-                    raise ClientError("Error receiving payoff pile 2 from server")
-                elif initial_setup_error_status == SetupErrorStatus.DRAW_PILE_RECEIVE_ERROR:
-                    raise ClientError("Error receiving draw pile from server")
-                elif initial_setup_error_status == SetupErrorStatus.OTHER_PLAYER_DISCONNECTED:
-                    raise ClientError("Other player disconnected!")
-
-
+                if user_quit_game:
+                    server_socket.close()
+                else:
+                    if initial_setup_error_status == SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER:
+                        raise ClientError(f"Could not connect to server {host}:{port}")
+                    elif initial_setup_error_status == SetupErrorStatus.GAME_LOBBY_FULL:
+                        raise ClientError("Game lobby full!")
+                    elif initial_setup_error_status == SetupErrorStatus.PAYOFF_PILE1_RECEIVE_ERROR:
+                        raise ClientError("Error receiving payoff pile 1 from server")
+                    elif initial_setup_error_status == SetupErrorStatus.PAYOFF_PILE2_RECEIVE_ERROR:
+                        raise ClientError("Error receiving payoff pile 2 from server")
+                    elif initial_setup_error_status == SetupErrorStatus.DRAW_PILE_RECEIVE_ERROR:
+                        raise ClientError("Error receiving draw pile from server")
+                    elif initial_setup_error_status == SetupErrorStatus.OTHER_PLAYER_DISCONNECTED:
+                        raise ClientError("Other player disconnected!")
 
         except TimeoutError:
+            server_socket.close()
             display_surface.fill(DARK_GREEN)
-            error_message = "An operation with the server timed out\n(other player may have disconnected or the server might be down)"
+            error_message = "An operation with the server timed out\n(other player may have disconnected\nor the server might be down)"
             error_font = pygame.font.SysFont("Arial", 32)
             error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
             error_text_rect = error_text.get_rect()
@@ -1837,6 +1898,7 @@ def main():
                 display_surface.blit(error_text, error_text_rect)
                 pygame.display.update()
         except ConnectionRefusedError:
+            server_socket.close()
             display_surface.fill(DARK_GREEN)
             error_message = "Server actively refused the client connection.\n       Please check the server and restart."
             error_font = pygame.font.SysFont("Arial", 32)
@@ -1853,6 +1915,7 @@ def main():
                 display_surface.blit(error_text, error_text_rect)
                 pygame.display.update()
         except ClientError as ce:
+            server_socket.close()
             display_surface.fill(DARK_GREEN)
             error_message = ""
             if "]" in str(ce):
@@ -1876,6 +1939,7 @@ def main():
                 pygame.display.update()
 
         pygame.quit()
+
 
 if __name__ == "__main__":
     if sys.version_info >= (3, 11):

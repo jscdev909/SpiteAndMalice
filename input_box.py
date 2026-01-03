@@ -4,7 +4,7 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 
 class InputBox:
-    def __init__(self, x: int, y: int, width: int, height: int, active_color: tuple[int, int, int]=WHITE, inactive_color: tuple[int, int, int]=BLACK, text=""):
+    def __init__(self, x: int, y: int, width: int, height: int, active_color: tuple[int, int, int]=WHITE, inactive_color: tuple[int, int, int]=BLACK, text: str=""):
         self.rect = pygame.Rect(x, y, width, height)
         self.color = inactive_color
         self.active_color = active_color

@@ -47,7 +47,7 @@ class ServerError(Exception):
 def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
     global connection_count, current_turn, deck, payoff_pile1, payoff_pile2, draw_pile
     global player1_hand, player2_hand, players_with_decks, player1_draw_count, player2_draw_count
-    global player1_name, player2_name, game_over
+    global player1_name, player2_name
     player_number = 0
 
     print(f"[+] Accepted connection from {client_address[0]}:{client_address[1]}", flush=True)
@@ -68,15 +68,19 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     connection_count += 1
                     player_number = connection_count
                     connection_count_lock.release()
-                    send_message(client_socket, f"You are player {player_number}")
+
                     player_name_match = re.search(r"Name: (.*)", request)
                     if player_name_match:
                         if player_number == 1:
                             player1_name = player_name_match.group(1)
                             print(f"[*] Player {player_number} ({player1_name}) has joined the game", flush=True)
+                            send_message(client_socket,f"You are player {player_number}")
                         elif player_number == 2:
                             player2_name = player_name_match.group(1)
                             print(f"[*] Player {player_number} ({player2_name}) has joined the game", flush=True)
+                            send_message(client_socket,f"You are player {player_number}")
+                        else:
+                            raise ServerError("Player number cannot be 0!")
                     else:
                         raise ServerError("Received an invalid player name")
 
@@ -89,6 +93,23 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 else:
                     connection_count_lock.release()
                     send_message(client_socket, "Waiting for player 2")
+
+            elif "What is player" in request and "name" in request:
+                target_player = 0
+                pattern = r"player (\d)"
+                first_match = re.search(pattern, request)
+                if first_match and first_match.group(1).strip().isdigit():
+                    target_player = int(first_match.group(1).strip())
+                else:
+                    raise ServerError("Could not parse target player ID from client data")
+
+                if target_player == 1:
+                    send_message(client_socket, player1_name)
+                elif target_player == 2:
+                    send_message(client_socket, player2_name)
+                else:
+                    raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
+
 
             elif request == "Draw pile needs to be reshuffled":
 
@@ -876,6 +897,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
             player2_hand = []
             card_lock.release()
             players_with_decks = 0
+            player1_name = ""
+            player2_name = ""
             player1_moves_queue_lock.acquire()
             player2_moves_queue_lock.acquire()
             player1_moves_queue.clear()
