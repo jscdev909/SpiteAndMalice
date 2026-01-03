@@ -1,11 +1,16 @@
 import re
 import socket
-import pygame
 import threading
+import tomllib
+import os
+import sys
+import pygame
 from card import Card, CardPosition, receive_cards, send_cards
 from socket_utils import send_message, receive_message
 from path_utils import get_path
 from enum import Enum
+from pathlib import Path
+from input_box import InputBox
 
 class SetupStatus(Enum):
     UNSET = 0,
@@ -37,20 +42,23 @@ class ShuffleErrorStatus(Enum):
     INCORRECT_DRAW_PILE_LENGTH = 1,
     EMPTY_DRAW_PILE = 2
 
+
 class ClientError(Exception):
     pass
 
 DARK_GREEN = (0, 100, 0)
 WHITE = (255, 255, 255)
+
 WINDOW_WIDTH = 925
 WINDOW_HEIGHT = 950
 
 FPS = 60
 
-HOST = "134.199.200.34"
-PORT = 43210
+host = ""
+port = 0
 
 player_number = 0
+player_name = ""
 opponent_player = 0
 payoff_pile1 = []
 payoff_pile2 = []
@@ -62,24 +70,25 @@ initial_setup_error_status = SetupErrorStatus.UNSET
 reshuffle_draw_pile_status = ShuffleStatus.UNSET
 reshuffle_draw_pile_error_status = ShuffleErrorStatus.UNSET
 
+
 def initial_setup(server_socket: socket.socket):
 
-    global player_number, opponent_player, initial_setup_status, initial_setup_error_status
-    global payoff_pile1, payoff_pile2, draw_pile
+    global player_number, player_name, opponent_player, initial_setup_status, initial_setup_error_status
+    global payoff_pile1, payoff_pile2, draw_pile, host, port
 
     # Connect to the server
     initial_setup_status = SetupStatus.CONNECTING_TO_SERVER
     server_socket.settimeout(10)
 
     try:
-        server_socket.connect((HOST, PORT))
+        server_socket.connect((host, port))
     except OSError:
         initial_setup_status = SetupStatus.ERROR
         initial_setup_error_status = SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER
         return
 
     # Receive player number
-    send_message(server_socket, "Player ready!")
+    send_message(server_socket, f"Player ready! Name: {player_name}")
     print("Sent player ready message to server")  # DEBUG
     data = receive_message(server_socket)
     print(data)
@@ -240,10 +249,12 @@ def reshuffle_draw_pile(server_socket: socket.socket, cards_to_shuffle: list[Car
     return
 
 
-def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
+def run_game(server_socket: socket.socket, display_surface: pygame.Surface) -> bool:
 
     global payoff_pile1, payoff_pile2, draw_pile, player_number, opponent_player
     global reshuffle_draw_pile_status, reshuffle_draw_pile_error_status
+
+    socket_closed = False
 
     last_turn = 0
     current_turn = 0
@@ -1566,6 +1577,8 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             first_turn = False
 
         if game_result_determined:
+            server_socket.close()
+            socket_closed = True
             paused = True
             while paused:
                 for event in pygame.event.get():
@@ -1573,28 +1586,181 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         paused = False
             break
 
+    return socket_closed
 
 
 def main():
 
-    global player_number
+    global player_number, player_name, host, port
 
     pygame.init()
 
     display_surface = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption("Spite and Malice")
 
-    try:
-        with (socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket):
+    getting_user_input = True
+    user_quit_game = False
+    check_user_input = False
+    verified_name = False
+    verified_server_ip = False
+    verified_server_port = False
+    write_config_file = True
 
-            # server_socket.settimeout(30)
-            # server_socket.connect((HOST, PORT))
+    server_ip_pattern = r"^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$"
+
+    # Check for existing config file
+    unknown_os = False
+    if os.name == "nt":
+        config_file_path = Path("C:/ProgramData") / "jscdev909" / "spite_and_malice_client" / "config.toml"
+    elif os.name == "posix":
+        config_file_path = Path(os.getenv("HOME")) / ".config" / "spite_and_malice_client" / "config.toml"
+    else:
+        unknown_os = True
+        config_file_path = Path()
+
+    name_input_box = InputBox(425, 300, 300, 50)
+    server_ip_input_box = InputBox(425, 400, 300, 50)
+    server_port_input_box = InputBox(425, 500, 150, 50)
+
+    if config_file_path.exists():
+        print(config_file_path) # DEBUG
+        with open(config_file_path, "rb") as config_file:
+            data = tomllib.load(config_file)
+        if ("name" in data and data["name"] and "server_ip" in data and
+            re.search(server_ip_pattern, data["server_ip"]) is not None and
+            "server_port" in data and 32768 < data["server_port"] < 65535):
+            name_input_box.text = data["name"]
+            server_ip_input_box.text = data["server_ip"]
+            server_port_input_box.text = data["server_port"]
+            write_config_file = False
+
+    active_button_inner_color = (0, 75, 0)
+    active_button_outer_color = (0, 75, 0)
+    inactive_button_inner_color = DARK_GREEN
+    inactive_button_outer_color = (0, 75, 0)
+    current_inner_button_color = inactive_button_inner_color
+    current_outer_button_color = inactive_button_outer_color
+    outer_button_rect = pygame.Rect(363, 586, 125, 75)
+
+    input_error_message = ""
+
+    while getting_user_input:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                getting_user_input = False
+                user_quit_game = True
+            name_input_box.handle_event(event)
+            server_ip_input_box.handle_event(event)
+            server_port_input_box.handle_event(event)
+
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    if outer_button_rect.collidepoint(mouse_x, mouse_y):
+                        check_user_input = True
+
+            if outer_button_rect.collidepoint(mouse_x, mouse_y):
+                current_inner_button_color = active_button_inner_color
+                current_outer_button_color =  active_button_outer_color
+            else:
+                current_inner_button_color = inactive_button_inner_color
+                current_outer_button_color = inactive_button_outer_color
+
+        # Check user input
+        if check_user_input:
+            if not name_input_box.text:
+                input_error_message = "Please enter a name"
+            elif not server_ip_input_box.text:
+                input_error_message = "Please enter a server IP"
+            elif not server_port_input_box.text:
+                input_error_message = "Please enter a server port"
+            elif name_input_box.text and server_ip_input_box.text and server_port_input_box.text:
+                print(name_input_box.text)
+                verified_name = True
+
+                if server_ip_input_box.text:
+
+                    ip_match = re.search(server_ip_pattern, server_ip_input_box.text)
+
+                    if ip_match:
+                        print(ip_match.group())
+                        verified_server_ip = True
+                    else:
+                        input_error_message = "Please enter a valid IP address"
+
+                if server_port_input_box.text and verified_server_ip:
+                    if server_port_input_box.text.isdigit():
+                        if 32768 <= int(server_port_input_box.text) <= 65535:
+                            print(server_port_input_box.text)
+                            verified_server_port = True
+                        else:
+                            input_error_message = "Please enter a valid port number\n             (32768-65535)"
+
+                if verified_name and verified_server_ip and verified_server_port:
+                    if write_config_file and not unknown_os:
+                        config_file_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(config_file_path, "w") as config_file:
+                            config_file.write(f"name = {name_input_box.text}\n")
+                            config_file.write(f"server_ip = {server_ip_input_box.text}\n")
+                            config_file.write(f"server_port = {server_port_input_box.text}\n")
+                    host = server_ip_input_box.text
+                    port = int(server_port_input_box.text)
+                    getting_user_input = False
+                else:
+                    verified_name = False
+                    verified_server_ip = False
+                    verified_server_port = False
+
+            check_user_input = False
+
+        display_surface.fill(DARK_GREEN)
+        name_input_box.draw(display_surface)
+        server_ip_input_box.draw(display_surface)
+        server_port_input_box.draw(display_surface)
+
+        name_label_surface = pygame.font.SysFont("Arial", 32).render("Player Name:", True, WHITE)
+        name_label_rect = name_label_surface.get_rect()
+        name_label_rect.x = 210
+        name_label_rect.y = 305
+        display_surface.blit(name_label_surface, name_label_rect)
+
+        host_label_surface = pygame.font.SysFont("Arial", 32).render("Server IP:", True, WHITE)
+        host_label_rect = name_label_surface.get_rect()
+        host_label_rect.x = 260
+        host_label_rect.y = 405
+        display_surface.blit(host_label_surface, host_label_rect)
+
+        port_label_surface = pygame.font.SysFont("Arial", 32).render("Server Port:", True, WHITE)
+        port_label_rect = name_label_surface.get_rect()
+        port_label_rect.x = 230
+        port_label_rect.y = 505
+        display_surface.blit(port_label_surface, port_label_rect)
+
+        pygame.draw.rect(display_surface, current_outer_button_color, outer_button_rect)
+        inner_button_rect = pygame.draw.rect(display_surface, current_inner_button_color, (375, 600, 100, 50))
+        ok_label_surface = pygame.font.SysFont("Arial", 32).render("OK", True, WHITE)
+        ok_label_rect = ok_label_surface.get_rect()
+        ok_label_rect.x = inner_button_rect.x + 25
+        ok_label_rect.y = inner_button_rect.y + 8
+        display_surface.blit(ok_label_surface, ok_label_rect)
+
+        if input_error_message:
+            input_error_surface = pygame.font.SysFont("Arial", 32).render(input_error_message, True, WHITE)
+            input_error_rect = input_error_surface.get_rect()
+            input_error_rect.x = 250
+            input_error_rect.y = 200
+            display_surface.blit(input_error_surface, input_error_rect)
+
+        pygame.display.update()
+
+    if not user_quit_game:
+        try:
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
             initial_setup_thread = threading.Thread(target=initial_setup, args=(server_socket,))
             initial_setup_thread.start()
 
             performing_setup = True
-            user_quit_game = False
 
             status_font = pygame.font.SysFont("Arial", 32)
 
@@ -1635,10 +1801,12 @@ def main():
 
             if (initial_setup_status == SetupStatus.COMPLETE and
                 initial_setup_error_status == SetupErrorStatus.UNSET and not user_quit_game):
-                run_game(server_socket, display_surface)
+                socket_closed = run_game(server_socket, display_surface)
+                if not socket_closed:
+                    server_socket.close()
             else:
                 if initial_setup_error_status == SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER:
-                    raise ClientError(f"Could not connect to server {HOST}")
+                    raise ClientError(f"Could not connect to server {host}:{port}")
                 elif initial_setup_error_status == SetupErrorStatus.GAME_LOBBY_FULL:
                     raise ClientError("Game lobby full!")
                 elif initial_setup_error_status == SetupErrorStatus.PAYOFF_PILE1_RECEIVE_ERROR:
@@ -1650,62 +1818,67 @@ def main():
                 elif initial_setup_error_status == SetupErrorStatus.OTHER_PLAYER_DISCONNECTED:
                     raise ClientError("Other player disconnected!")
 
-    except TimeoutError:
-        display_surface.fill(DARK_GREEN)
-        error_message = "An operation with the server timed out\n(other player may have disconnected or the server might be down)"
-        error_font = pygame.font.SysFont("Arial", 32)
-        error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
-        error_text_rect = error_text.get_rect()
-        error_text_rect.centerx = WINDOW_WIDTH//2
-        error_text_rect.centery = WINDOW_HEIGHT//2
-        paused = True
-        while paused:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    paused = False
-            display_surface.fill(DARK_GREEN)
-            display_surface.blit(error_text, error_text_rect)
-            pygame.display.update()
-    except ConnectionRefusedError:
-        display_surface.fill(DARK_GREEN)
-        error_message = "Server actively refused the client connection.\n       Please check the server and restart."
-        error_font = pygame.font.SysFont("Arial", 32)
-        error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
-        error_text_rect = error_text.get_rect()
-        error_text_rect.centerx = WINDOW_WIDTH//2
-        error_text_rect.centery = WINDOW_HEIGHT//2
-        paused = True
-        while paused:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    paused = False
-            display_surface.fill(DARK_GREEN)
-            display_surface.blit(error_text, error_text_rect)
-            pygame.display.update()
-    except ClientError as ce:
-        display_surface.fill(DARK_GREEN)
-        error_message = ""
-        if "]" in str(ce):
-            error_message = "There was an issue communicating with the server.\nPlease restart the program and try again."
-        elif str(ce) == "timed out":
-            error_message = "Connection to the server timed out (30 seconds)"
-        else:
-            error_message = str(ce)
-        error_font = pygame.font.SysFont("Arial", 32)
-        error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
-        error_text_rect = error_text.get_rect()
-        error_text_rect.centerx = WINDOW_WIDTH//2
-        error_text_rect.centery = WINDOW_HEIGHT//2
-        paused = True
-        while paused:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    paused = False
-            display_surface.fill(DARK_GREEN)
-            display_surface.blit(error_text, error_text_rect)
-            pygame.display.update()
 
-    pygame.quit()
+
+        except TimeoutError:
+            display_surface.fill(DARK_GREEN)
+            error_message = "An operation with the server timed out\n(other player may have disconnected or the server might be down)"
+            error_font = pygame.font.SysFont("Arial", 32)
+            error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
+            error_text_rect = error_text.get_rect()
+            error_text_rect.centerx = WINDOW_WIDTH//2
+            error_text_rect.centery = WINDOW_HEIGHT//2
+            paused = True
+            while paused:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        paused = False
+                display_surface.fill(DARK_GREEN)
+                display_surface.blit(error_text, error_text_rect)
+                pygame.display.update()
+        except ConnectionRefusedError:
+            display_surface.fill(DARK_GREEN)
+            error_message = "Server actively refused the client connection.\n       Please check the server and restart."
+            error_font = pygame.font.SysFont("Arial", 32)
+            error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
+            error_text_rect = error_text.get_rect()
+            error_text_rect.centerx = WINDOW_WIDTH//2
+            error_text_rect.centery = WINDOW_HEIGHT//2
+            paused = True
+            while paused:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        paused = False
+                display_surface.fill(DARK_GREEN)
+                display_surface.blit(error_text, error_text_rect)
+                pygame.display.update()
+        except ClientError as ce:
+            display_surface.fill(DARK_GREEN)
+            error_message = ""
+            if "]" in str(ce):
+                error_message = "There was an issue communicating with the server.\nPlease restart the program and try again."
+            elif str(ce) == "timed out":
+                error_message = "Connection to the server timed out (30 seconds)"
+            else:
+                error_message = str(ce)
+            error_font = pygame.font.SysFont("Arial", 32)
+            error_text = error_font.render(error_message, True, WHITE, DARK_GREEN)
+            error_text_rect = error_text.get_rect()
+            error_text_rect.centerx = WINDOW_WIDTH//2
+            error_text_rect.centery = WINDOW_HEIGHT//2
+            paused = True
+            while paused:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        paused = False
+                display_surface.fill(DARK_GREEN)
+                display_surface.blit(error_text, error_text_rect)
+                pygame.display.update()
+
+        pygame.quit()
 
 if __name__ == "__main__":
-    main()
+    if sys.version_info >= (3, 11):
+        main()
+    else:
+        print("This script requires at least Python 3.11")

@@ -1,16 +1,18 @@
 import socket
 import threading
-import pygame
 import time
 import re
 import random
+import tomllib
+import os
+import sys
 from collections import deque
 from card import CardPosition, send_cards, receive_cards, deal, create_deck
 from socket_utils import receive_message, send_message
 from path_utils import get_path
+from pathlib import Path
 
-HOST = '0.0.0.0'
-PORT = 43210
+HOST = "0.0.0.0"
 
 connection_count = 0
 current_turn = 0
@@ -26,9 +28,11 @@ build_piles = [[], [], [], []]
 player1_discard_piles = [[], [], [], []]
 player2_discard_piles = [[], [], [], []]
 draw_pile = []
+player1_name = ""
 player1_hand = []
 player1_draw_count = 0
 player1_draw_count_lock = threading.Lock()
+player2_name = ""
 player2_hand = []
 player2_draw_count = 0
 player2_draw_count_lock = threading.Lock()
@@ -43,6 +47,7 @@ class ServerError(Exception):
 def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
     global connection_count, current_turn, deck, payoff_pile1, payoff_pile2, draw_pile
     global player1_hand, player2_hand, players_with_decks, player1_draw_count, player2_draw_count
+    global player1_name, player2_name, game_over
     player_number = 0
 
     print(f"[+] Accepted connection from {client_address[0]}:{client_address[1]}", flush=True)
@@ -53,7 +58,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
             if not request:
                 print("[*] Client disconnected!", flush=True)
                 break
-            elif request == "Player ready!":
+
+            elif "Player ready!" in request:
                 connection_count_lock.acquire()
                 if connection_count == 2:
                     send_message(client_socket, "Game lobby is full")
@@ -63,7 +69,16 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     player_number = connection_count
                     connection_count_lock.release()
                     send_message(client_socket, f"You are player {player_number}")
-                    print(f"[*] Player {player_number} has joined the game", flush=True)
+                    player_name_match = re.search(r"Name: (.*)", request)
+                    if player_name_match:
+                        if player_number == 1:
+                            player1_name = player_name_match.group(1)
+                            print(f"[*] Player {player_number} ({player1_name}) has joined the game", flush=True)
+                        elif player_number == 2:
+                            player2_name = player_name_match.group(1)
+                            print(f"[*] Player {player_number} ({player2_name}) has joined the game", flush=True)
+                    else:
+                        raise ServerError("Received an invalid player name")
 
             # Note: This request should only be sent by the player 1 client
             elif request == "Has player 2 joined?":
@@ -842,7 +857,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
     except ServerError as se:
         print(f"[*] Error handling client {client_address[0]}:{client_address[1]}: {se}", flush=True)
     except ConnectionResetError:
-        print(f"[*] Existing connection forcibly closed by client", flush=True)
+        print(f"[*] Connection reset by client (client disconnected)", flush=True)
     except BrokenPipeError:
         print(f"[*] Client disconnected in the middle of an operation", flush=True)
     finally:
@@ -880,15 +895,17 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
         current_turn_lock.release()
         print(f"[-] Connection with {client_address[0]}:{client_address[1]} closed.", flush=True)
 
-def run_server() -> None:
+def run_server(valid_port: int) -> None:
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    server.bind((HOST, PORT))
-    server.listen(2)
-    server.settimeout(0.5)
-    print(f"[*] Listening on {HOST}:{PORT}", flush=True)
-
     try:
+
+        server.bind((HOST, valid_port))
+        server.listen(2)
+        server.settimeout(0.5)
+        print(f"[*] Listening on {HOST}:{valid_port}", flush=True)
+
         while True:
             try:
                 client_socket, addr = server.accept()
@@ -897,12 +914,78 @@ def run_server() -> None:
             except socket.timeout:
                 pass
     except KeyboardInterrupt:
-        print("[*] KeyboardInterrupt received. Server shutting down...", flush=True)
+        print("\n[*] KeyboardInterrupt received. Server shutting down...", flush=True)
+    except OSError as ose:
+        if "Address already in use" in str(ose):
+            print(f"[*] Error binding to address {HOST}:{valid_port}: Address already in use", flush=True)
+        elif "Permission denied" in str(ose):
+            # Should never reach here due to prior error checking
+            print(f"[*] Error binding to valid_port {valid_port}: Did you specify a privileged port?", flush=True)
+        elif "Invalid argument" in str(ose):
+            # Should never reach here due to prior error checking
+            print(f"[*] Error binding to port {valid_port}: Invalid port number specified", flush=True)
     finally:
         server.close()
 
+def main():
+
+    unknown_os = False
+    if os.name == "nt":
+        config_file_path = Path("C:/ProgramData") / "jscdev909" / "spite_and_malice_server" / "config.toml"
+    elif os.name == "posix":
+        config_file_path = Path(os.getenv("HOME")) / ".config" / "spite_and_malice_server" / "config.toml"
+    else:
+        unknown_os = True
+        config_file_path = Path()
+
+    port = 0
+
+    try:
+        if config_file_path.exists():
+            print(f"Using config file found at {config_file_path}", flush=True)
+            with open(config_file_path, "rb") as config_file:
+                data = tomllib.load(config_file)
+            if "port" in data and 32768 <= data["port"] <= 65535:
+                port = data["port"]
+            else:
+                print("Config file contains incorrect port number, rewriting config file with new input")
+                receiving_input = True
+                while receiving_input:
+                    user_input = input("Please enter a port number (32768-65535) for the server to listen to: ")
+                    if user_input.isdigit() and 32768 <= int(user_input) <= 65535:
+                        port = int(user_input)
+                        receiving_input = False
+
+                with open(config_file_path, "w") as config_file:
+                    config_file.write(f"port = {port}\n")
+
+                print(f"Re-wrote config file to {str(config_file_path)}",
+                      flush=True)
+        else:
+            receiving_input = True
+            while receiving_input:
+                user_input = input("Please enter a port number (32768-65535) for the server to listen to: ")
+                if user_input.isdigit():
+                    if 32768 <= int(user_input) <= 65535:
+                        port = int(user_input)
+                        receiving_input = False
+
+            if not unknown_os:
+                config_file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(config_file_path, "w") as config_file:
+                    config_file.write(f"port = {port}\n")
+
+                print(f"Wrote new config file to {str(config_file_path)}", flush=True)
+
+        run_server(port)
+
+    except KeyboardInterrupt:
+        print("\nExiting...", flush=True)
+
 
 if __name__ == "__main__":
-    pygame.init()
-    run_server()
-    pygame.quit()
+    if sys.version_info >= (3, 11):
+        main()
+    else:
+        print("This script requires at least Python 3.11", flush=True)
+
