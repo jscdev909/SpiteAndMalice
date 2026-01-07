@@ -12,6 +12,7 @@ from socket_utils import receive_message, send_message
 from path_utils import get_path
 from pathlib import Path
 
+VERSION = "1.0.0"
 HOST = "0.0.0.0"
 
 connection_count = 0
@@ -31,15 +32,15 @@ draw_pile = []
 player1_name = ""
 player1_hand = []
 player1_draw_count = 0
-player1_draw_count_lock = threading.Lock()
+player1_moves_queue = deque()
+player1_rematch = None
 player2_name = ""
 player2_hand = []
 player2_draw_count = 0
-player2_draw_count_lock = threading.Lock()
-player1_moves_queue = deque()
-player1_moves_queue_lock = threading.Lock()
 player2_moves_queue = deque()
-player2_moves_queue_lock = threading.Lock()
+player2_rematch = None
+rematch_setup_complete = False
+rematch_setup_lock = threading.Lock()
 
 class ServerError(Exception):
     pass
@@ -47,7 +48,7 @@ class ServerError(Exception):
 def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
     global connection_count, current_turn, deck, payoff_pile1, payoff_pile2, draw_pile
     global player1_hand, player2_hand, players_with_decks, player1_draw_count, player2_draw_count
-    global player1_name, player2_name
+    global player1_name, player2_name, player1_rematch, player2_rematch, rematch_setup_complete
     player_number = 0
 
     print(f"[+] Accepted connection from {client_address[0]}:{client_address[1]}", flush=True)
@@ -110,6 +111,89 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 else:
                     raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
 
+            elif "Player" in request and "did not want a re-match" in request:
+                target_player = 0
+                pattern = r"Player (\d)"
+                first_match = re.search(pattern, request)
+                if first_match and first_match.group(1).strip().isdigit():
+                    target_player = int(first_match.group(1).strip())
+                else:
+                    raise ServerError(
+                        "Could not parse target player ID from client data")
+
+                if target_player == 1:
+                    player1_rematch = False
+                elif target_player == 2:
+                    player2_rematch = False
+
+            elif "Player" in request and "wants a re-match" in request:
+                target_player = 0
+                pattern = r"Player (\d)"
+                first_match = re.search(pattern, request)
+                if first_match and first_match.group(1).strip().isdigit():
+                    target_player = int(first_match.group(1).strip())
+                else:
+                    raise ServerError(
+                        "Could not parse target player ID from client data")
+
+                if target_player == 1:
+                    player1_rematch = True
+                elif target_player == 2:
+                    player2_rematch = True
+
+            elif "Does player" in request and "also want a re-match?" in request:
+                target_player = 0
+                pattern = r"player (\d)"
+                first_match = re.search(pattern, request)
+                if first_match and first_match.group(1).strip().isdigit():
+                    target_player = int(first_match.group(1).strip())
+                else:
+                    raise ServerError(
+                        "Could not parse target player ID from client data")
+
+                if target_player == 1:
+                    if player1_rematch is True:
+                        send_message(client_socket, "Yes")
+                    elif player1_rematch is False:
+                        send_message(client_socket, "No")
+                    else:
+                        send_message(client_socket, "Undecided")
+                elif target_player == 2:
+                    if player2_rematch is True:
+                        send_message(client_socket, "Yes")
+                    elif player2_rematch is False:
+                        send_message(client_socket, "No")
+                    else:
+                        send_message(client_socket, "Undecided")
+
+            elif request == "Set up a new game":
+                rematch_setup_lock.acquire()
+                if not rematch_setup_complete:
+                    print("[*] New game requested, resetting game parameters...", flush=True)
+                    card_lock.acquire()
+                    deck = []
+                    payoff_pile1 = []
+                    payoff_pile2 = []
+                    draw_pile = []
+                    player1_hand = []
+                    player2_hand = []
+                    card_lock.release()
+                    players_with_decks = 0
+                    player1_name = ""
+                    player2_name = ""
+                    player1_moves_queue.clear()
+                    player2_moves_queue.clear()
+                    player1_draw_count = 0
+                    player2_draw_count = 0
+                    player1_rematch = None
+                    player2_rematch = None
+                    current_turn_lock.acquire()
+                    current_turn = 0
+                    current_turn_lock.release()
+                    rematch_setup_complete = True
+                else:
+                    rematch_setup_complete = False
+                rematch_setup_lock.release()
 
             elif request == "Draw pile needs to be reshuffled":
 
@@ -249,13 +333,9 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     raise ServerError("Invalid player ID specified in client data")
 
                 if target_player == 1:
-                    player1_draw_count_lock.acquire()
                     send_message(client_socket, str(player1_draw_count))
-                    player1_draw_count_lock.release()
                 elif target_player == 2:
-                    player2_draw_count_lock.acquire()
                     send_message(client_socket, str(player2_draw_count))
-                    player2_draw_count_lock.release()
 
 
             elif "What was" in request and "last move" in request:
@@ -268,7 +348,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     raise ServerError("Invalid player ID specified in request")
 
                 if target_player == 1:
-                    player1_moves_queue_lock.acquire()
                     if player1_moves_queue:
                         print("in here 1 - server")
                         last_move = player1_moves_queue.popleft()
@@ -277,9 +356,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             send_cards(client_socket, [last_move[1]])
                     else:
                         send_message(client_socket, "Nothing")
-                    player1_moves_queue_lock.release()
                 elif target_player == 2:
-                    player2_moves_queue_lock.acquire()
                     if player2_moves_queue:
                         print("in here 2 - server")
                         last_move = player2_moves_queue.popleft()
@@ -288,7 +365,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             send_cards(client_socket, [last_move[1]])
                     else:
                         send_message(client_socket, "Nothing")
-                    player2_moves_queue_lock.release()
                 else:
                     # Should never get here but raise an exception just in case
                     raise ServerError("Invalid player ID specified in request")
@@ -296,22 +372,25 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
             elif request == "Whose turn is it?":
                 current_turn_lock.acquire()
                 if current_turn == 0:
-                    current_turn = random.randint(1, 2)
+                    if payoff_pile1[-1].rank > payoff_pile2[-1].rank:
+                        current_turn = 1
+                    elif payoff_pile1[-1].rank < payoff_pile2[-1].rank:
+                        current_turn = 2
+                    elif payoff_pile1[-1].rank == payoff_pile2[-1].rank:
+                        current_turn = random.randint(1, 2)
                     print(f"Setting current turn to {current_turn}", flush=True)
                 send_message(client_socket, f"Player {current_turn}")
+                # DEBUG
+                print(f"It is currently player {current_turn}'s turn", flush=True)
                 current_turn_lock.release()
 
             elif "ended their turn" in request:
                 current_turn_lock.acquire()
                 if current_turn == 1:
-                    player1_draw_count_lock.acquire()
                     player1_draw_count = 0
-                    player1_draw_count_lock.release()
                     current_turn = 2
                 elif current_turn == 2:
-                    player2_draw_count_lock.acquire()
                     player2_draw_count = 0
-                    player2_draw_count_lock.release()
                     current_turn = 1
                 current_turn_lock.release()
 
@@ -339,13 +418,9 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 card_lock.release()
 
                 if target_player == 1:
-                    player1_draw_count_lock.acquire()
                     player1_draw_count += 5
-                    player1_draw_count_lock.release()
                 elif target_player == 2:
-                    player2_draw_count_lock.acquire()
                     player2_draw_count += 5
-                    player2_draw_count_lock.release()
 
             elif "moved" in request and "from their" in request:
                 last_card_moved_from_hand = None
@@ -616,14 +691,12 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     else:
                         raise ServerError("Invalid 'moving from' location specified in move request")
 
-                    player1_moves_queue_lock.acquire()
                     if moving_from == "hand":
                         player1_moves_queue.append((f"Player 1 moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
                         print(f"Player 1 moved {card_name} from {moving_from} to {moving_to}", flush=True)
                     else:
                         player1_moves_queue.append((f"Player 1 moved {card_name} from {moving_from} to {moving_to}", None))
                         print(f"Player 1 moved {card_name} from {moving_from} to {moving_to}", flush=True)
-                    player1_moves_queue_lock.release()
 
                 elif target_player == 2:
                     if moving_from == "hand":
@@ -861,14 +934,12 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     else:
                         raise ServerError("Invalid 'moving from' location specified in move request")
 
-                    player2_moves_queue_lock.acquire()
                     if moving_from == "hand":
                         player2_moves_queue.append((f"Player 2 moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
                         print(f"Player 2 moved {card_name} from {moving_from} to {moving_to}", flush=True)
                     else:
                         player2_moves_queue.append((f"Player 2 moved {card_name} from {moving_from} to {moving_to}", None))
                         print(f"Player 2 moved {card_name} from {moving_from} to {moving_to}", flush=True)
-                    player2_moves_queue_lock.release()
 
 
             else:
@@ -899,18 +970,12 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
             players_with_decks = 0
             player1_name = ""
             player2_name = ""
-            player1_moves_queue_lock.acquire()
-            player2_moves_queue_lock.acquire()
             player1_moves_queue.clear()
             player2_moves_queue.clear()
-            player2_moves_queue_lock.release()
-            player1_moves_queue_lock.release()
-            player1_draw_count_lock.acquire()
-            player2_draw_count_lock.acquire()
             player1_draw_count = 0
             player2_draw_count = 0
-            player2_draw_count_lock.release()
-            player1_draw_count_lock.release()
+            player1_rematch = None
+            player2_rematch = None
         players_with_decks_lock.release()
         connection_count_lock.release()
         current_turn_lock.acquire()
@@ -1008,6 +1073,7 @@ def main():
 
 if __name__ == "__main__":
     if sys.version_info >= (3, 11):
+        print(f"Spite and Malice Server v{VERSION}", flush=True)
         main()
     else:
         print("This script requires at least Python 3.11", flush=True)
