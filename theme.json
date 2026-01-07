@@ -1,0 +1,32 @@
+{
+  "text_entry_line": {
+    "colours": {
+      "dark_bg": "Green",
+      "normal_text": "White",
+      "normal_border": "Black"
+    },
+    "font": {
+      "name": "arial",
+      "size": "36"
+
+    }
+  },
+  "button": {
+    "colours": {
+      "normal_border": "White",
+      "normal_bg": "Green",
+      "normal_text": "White",
+      "hovered_bg": "DarkGreen",
+      "active_bg": "ForestGreen"
+    },
+    "font": {
+      "name": "arial",
+      "size": "16"
+    },
+    "misc": {
+      "shape": "rounded_rectangle",
+      "shape_corner_radius": "4",
+      "border_width": "2"
+    }
+  }
+}
