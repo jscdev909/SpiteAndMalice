@@ -6,7 +6,6 @@ import os
 import sys
 import pygame
 import pygame_gui
-from pygame_gui import UI_BUTTON_PRESSED
 
 from card import Card, CardPosition, receive_cards, send_cards
 from socket_utils import send_message, receive_message
@@ -63,7 +62,7 @@ class RematchErrorStatus(Enum):
 class ClientError(Exception):
     pass
 
-VERSION = "1.0.0"
+VERSION = "dev.1.7.26"
 
 DARK_GREEN = (0, 100, 0)
 WHITE = (255, 255, 255)
@@ -123,7 +122,7 @@ def get_user_configuration(display_surface: pygame.Surface) -> bool:
 
     name_entry_line = pygame_gui.elements.UITextEntryLine(
         relative_rect=pygame.Rect(450, 250, 225, 50), manager=manager)
-    name_entry_line.set_text_length_limit(10)
+    name_entry_line.set_text_length_limit(8)
     server_ip_entry_line = pygame_gui.elements.UITextEntryLine(
         relative_rect=pygame.Rect(425, 400, 300, 50), manager=manager)
     server_ip_entry_line.set_text_length_limit(15)
@@ -222,8 +221,7 @@ def get_user_configuration(display_surface: pygame.Surface) -> bool:
 
             if server_port_entry_line.get_text():
                 if server_port_entry_line.get_text().isdigit():
-                    if 32768 <= int(
-                            server_port_entry_line.get_text()) <= 65535:
+                    if 32768 <= int(server_port_entry_line.get_text()) <= 65535:
                         verified_server_port = True
                         server_port_input_error = False
                     else:
@@ -547,6 +545,8 @@ def perform_rematch_setup(server_socket: socket.socket):
     global payoff_pile1, payoff_pile2, draw_pile, rematch_status, rematch_error_status
 
     rematch_status = RematchStatus.IN_PROGRESS
+
+    send_message(server_socket, "Awaiting card data")
 
     # Receive payoff pile 1
     print("Receiving payoff pile 1")
@@ -1783,9 +1783,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             display_surface.blit(card_back, card_back_rect)
 
         if player_number == 1:
-            player_number1_text = font.render(f"Player 1\n({player_name})", True, WHITE, DARK_GREEN)
+            player_number1_text = font.render(f"Player 1\n{player_name}", True, WHITE, DARK_GREEN)
             player_number1_rect = player_number1_text.get_rect()
-            player_number2_text = font.render(f"Player 2\n({opponent_player_name})", True, WHITE, DARK_GREEN)
+            player_number2_text = font.render(f"Player 2\n{opponent_player_name}", True, WHITE, DARK_GREEN)
             player_number2_rect = player_number2_text.get_rect()
             player_number1_rect.centerx = WINDOW_WIDTH - 100
             player_number1_rect.centery = WINDOW_HEIGHT - 100
@@ -1794,9 +1794,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             display_surface.blit(player_number1_text, player_number1_rect)
             display_surface.blit(player_number2_text, player_number2_rect)
         elif player_number == 2:
-            player_number1_text = font.render(f"Player 1\n({opponent_player_name})", True, WHITE, DARK_GREEN)
+            player_number1_text = font.render(f"Player 1\n{opponent_player_name}", True, WHITE, DARK_GREEN)
             player_number1_rect = player_number1_text.get_rect()
-            player_number2_text = font.render(f"Player 2\n({player_name})", True, WHITE, DARK_GREEN)
+            player_number2_text = font.render(f"Player 2\n{player_name}", True, WHITE, DARK_GREEN)
             player_number2_rect = player_number2_text.get_rect()
             player_number1_rect.centerx = 100
             player_number1_rect.centery = 100
@@ -1806,13 +1806,13 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             display_surface.blit(player_number2_text, player_number2_rect)
 
         if current_turn == player_number:
-            current_turn_text = font.render(f"Current turn:\nPlayer {current_turn}\n({player_name})", True, WHITE, DARK_GREEN)
+            current_turn_text = font.render(f"Current turn:\nPlayer {current_turn}\n{player_name}", True, WHITE, DARK_GREEN)
             current_turn_rect = current_turn_text.get_rect()
             current_turn_rect.right = WINDOW_WIDTH - 25
             current_turn_rect.y = WINDOW_HEIGHT // 2
             display_surface.blit(current_turn_text, current_turn_rect)
         elif current_turn == opponent_player:
-            current_turn_text = font.render(f"Current turn:\nPlayer {current_turn}\n({opponent_player_name})", True, WHITE, DARK_GREEN)
+            current_turn_text = font.render(f"Current turn:\nPlayer {current_turn}\n{opponent_player_name}", True, WHITE, DARK_GREEN)
             current_turn_rect = current_turn_text.get_rect()
             current_turn_rect.right = WINDOW_WIDTH - 25
             current_turn_rect.y = WINDOW_HEIGHT // 2
@@ -1981,13 +1981,12 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
 
             if rematch:
-                pygame.draw.rect(display_surface, (0, 150, 0),(WINDOW_WIDTH // 2 - 250,
-                                  WINDOW_HEIGHT // 2 - 200, 500, 185))
+                display_surface.fill(DARK_GREEN)
                 status_text = pygame.font.SysFont("Arial", 32).render(
                     "Requesting a re-match...", True, WHITE)
                 status_rect = status_text.get_rect()
                 status_rect.centerx = WINDOW_WIDTH // 2
-                status_rect.centery = WINDOW_HEIGHT // 2 - 100
+                status_rect.centery = WINDOW_HEIGHT // 2
                 display_surface.blit(status_text, status_rect)
                 pygame.display.update()
 
@@ -1997,7 +1996,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                     (WINDOW_WIDTH, WINDOW_HEIGHT), theme_path="theme.json")
 
                 ok_quit_button = pygame_gui.elements.UIButton(
-                    relative_rect=pygame.Rect((415, 475, 100, 50)),
+                    relative_rect=pygame.Rect((415, 550, 100, 50)),
                     text="OK (Quit)", manager=rematch_manager2)
 
                 while not user_quit_game:
@@ -2019,24 +2018,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                     data = receive_message(server_socket)
 
                     if data == "No":
-                        pygame.draw.rect(display_surface, (0, 150, 0),(WINDOW_WIDTH // 2 - 250, WINDOW_HEIGHT // 2 - 200, 500, 300))
-                        status_text = pygame.font.SysFont("Arial", 32).render(f"Player {opponent_player} ({opponent_player_name})\ndid not want a re-match!",True, WHITE)
+                        display_surface.fill(DARK_GREEN)
+                        status_text = pygame.font.SysFont("Arial", 32).render(f"Player {opponent_player} ({opponent_player_name}) did not want a re-match!",True, WHITE)
                         status_rect = status_text.get_rect()
                         status_rect.centerx = WINDOW_WIDTH // 2
-                        status_rect.centery = WINDOW_HEIGHT // 2 - 100
+                        status_rect.centery = WINDOW_HEIGHT // 2
                         display_surface.blit(status_text, status_rect)
                         rematch_manager2.draw_ui(display_surface)
+                        pygame.display.update()
                     elif data == "Yes":
-                        pygame.draw.rect(display_surface, (0, 150, 0),
-                                         (WINDOW_WIDTH // 2 - 350,
-                                          WINDOW_HEIGHT // 2 - 200,
-                                          700, 200))
-
+                        display_surface.fill(DARK_GREEN)
                         status_text = font.render(f"Player {opponent_player} ({opponent_player_name}) agreed to a re-match!\n        Setting up a new game...",
                             True, WHITE)
                         status_rect = status_text.get_rect()
                         status_rect.centerx = WINDOW_WIDTH // 2
-                        status_rect.centery = WINDOW_HEIGHT // 2 - 100
+                        status_rect.centery = WINDOW_HEIGHT // 2
                         display_surface.blit(status_text, status_rect)
                         pygame.display.update()
 
@@ -2047,6 +2043,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         build_piles = [[], [], [], []]
                         draggable_cards_set = False
                         first_turn = True
+                        current_hand = []
 
                         rematch_setup_thread = threading.Thread(target=perform_rematch_setup, args=(server_socket,), daemon=True)
                         rematch_setup_thread.start()
@@ -2060,10 +2057,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     setting_up_rematch = False
                                     user_quit_game = True
 
-                            pygame.draw.rect(display_surface, (0, 150, 0),
-                                             (WINDOW_WIDTH // 2 - 350,
-                                              WINDOW_HEIGHT // 2 - 200,
-                                              700, 200))
                             if rematch_status == RematchStatus.IN_PROGRESS:
                                 status_text = font.render("Receiving new card data from server...",
                                     True, WHITE)
@@ -2082,13 +2075,14 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         True, WHITE)
                             elif rematch_status == RematchStatus.COMPLETE:
                                 status_text = font.render(
-                                    "Re-match setup complete!",
+                                    "Re-match setup complete! Entering new game...",
                                     True, WHITE)
                                 setting_up_rematch = False
 
+                            display_surface.fill(DARK_GREEN)
                             status_rect = status_text.get_rect()
                             status_rect.centerx = WINDOW_WIDTH // 2
-                            status_rect.centery = WINDOW_HEIGHT // 2 - 100
+                            status_rect.centery = WINDOW_HEIGHT // 2
                             display_surface.blit(status_text, status_rect)
 
                             pygame.display.update()
@@ -2096,21 +2090,15 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         break
 
                     elif data == "Undecided":
-                        pygame.draw.rect(display_surface, (0, 150, 0),
-                                         (WINDOW_WIDTH // 2 - 350,
-                                          WINDOW_HEIGHT // 2 - 200,
-                                          700, 200))
-
+                        display_surface.fill(DARK_GREEN)
                         status_text = pygame.font.SysFont("Arial", 32).render(
                             f"Waiting for other player's re-match decision...",
                             True, WHITE)
                         status_rect = status_text.get_rect()
                         status_rect.centerx = WINDOW_WIDTH // 2
-                        status_rect.centery = WINDOW_HEIGHT // 2 - 100
+                        status_rect.centery = WINDOW_HEIGHT // 2
                         display_surface.blit(status_text, status_rect)
-
-
-                    pygame.display.update()
+                        pygame.display.update()
 
 
             else:

@@ -12,7 +12,7 @@ from socket_utils import receive_message, send_message
 from path_utils import get_path
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "dev.1.7.26"
 HOST = "0.0.0.0"
 
 connection_count = 0
@@ -991,7 +991,7 @@ def run_server(valid_port: int) -> None:
 
         server.bind((HOST, valid_port))
         server.listen(2)
-        server.settimeout(0.5)
+        server.settimeout(1)
         print(f"[*] Listening on {HOST}:{valid_port}", flush=True)
 
         while True:
@@ -1073,7 +1073,7 @@ def main():
 
 if __name__ == "__main__":
     if sys.version_info >= (3, 11):
-        print(f"Spite and Malice Server v{VERSION}", flush=True)
+        print(f"Spite and Malice Server - Version {VERSION}", flush=True)
         main()
     else:
         print("This script requires at least Python 3.11", flush=True)
