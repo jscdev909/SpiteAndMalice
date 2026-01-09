@@ -67,7 +67,6 @@ opponent_player = 0
 opponent_player_name = ""
 payoff_pile1_top_card = None
 payoff_pile2_top_card = None
-current_hand = []
 
 sound_option = "On"
 card_back_color_option = "Red"
@@ -79,7 +78,7 @@ rematch_setup_status = RematchStatus.UNSET
 rematch_setup_error_status = RematchErrorStatus.UNSET
 
 
-def get_user_configuration(display_surface: pygame.Surface) -> bool:
+def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
     global player_number, player_name, host, port, sound_option, card_back_color_option, VERSION
 
     getting_user_input = True
@@ -544,7 +543,7 @@ def perform_rematch_setup(server_socket: socket.socket):
 
 def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
-    global player_number, opponent_player, sound_option, current_hand
+    global player_number, opponent_player, sound_option
     global payoff_pile1_top_card, payoff_pile2_top_card, rematch_setup_status, rematch_setup_error_status
 
     socket_closed = False
@@ -572,6 +571,8 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
     build_piles = [[], [], [], []]
     build_piles_rects = [None, None, None, None]
+
+    current_hand = []
 
     # Make sure card_back has a default value
     card_back = pygame.image.load(get_path("assets/card_backs/card_back_red.png")).convert_alpha()
@@ -2168,6 +2169,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             first_turn = False
 
         user_quit_game = False
+        go_to_title_screen = False
         if game_result_text is not None:
             draggable_cards = []
             rematch_manager = pygame_gui.UIManager(
@@ -2233,11 +2235,15 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 rematch_manager2 = pygame_gui.UIManager(
                     (WINDOW_WIDTH, WINDOW_HEIGHT), theme_path="theme.json")
 
-                ok_quit_button = pygame_gui.elements.UIButton(
-                    relative_rect=pygame.Rect((415, 550, 100, 50)),
-                    text="OK (Quit)", manager=rematch_manager2)
+                title_screen_button = pygame_gui.elements.UIButton(
+                    relative_rect=pygame.Rect((335, 550, 100, 50)),
+                    text="Title Screen", manager=rematch_manager2)
 
-                while not user_quit_game:
+                quit_button = pygame_gui.elements.UIButton(
+                    relative_rect=pygame.Rect((485, 550, 100, 50)),
+                    text="Quit", manager=rematch_manager2)
+
+                while not user_quit_game and not go_to_title_screen:
 
                     time_delta = clock.tick(FPS) / 1000.0
                     for event in pygame.event.get():
@@ -2245,7 +2251,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                             user_quit_game = True
 
                         if event.type == pygame_gui.UI_BUTTON_PRESSED:
-                            if event.ui_element == ok_quit_button:
+                            if event.ui_element == title_screen_button:
+                                go_to_title_screen = True
+
+                            if event.ui_element == quit_button:
                                 user_quit_game = True
 
                         rematch_manager2.process_events(event)
@@ -2338,6 +2347,11 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         if user_quit_game:
             break
 
+        if go_to_title_screen:
+            server_socket.close()
+            main(display_surface)
+            break
+
         if network_timer == 0:
             network_timer = 10
         else:
@@ -2351,16 +2365,11 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         server_socket.close()
 
 
-def main():
+def main(display_surface: pygame.Surface):
 
-    global current_hand, initial_setup_status, initial_setup_error_status
+    global initial_setup_status, initial_setup_error_status
 
-    pygame.init()
-
-    display_surface = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    pygame.display.set_caption("Spite and Malice")
-
-    user_quit_game = get_user_configuration(display_surface)
+    user_quit_game = show_title_screen_and_get_config(display_surface)
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -2499,6 +2508,10 @@ def main():
 
 if __name__ == "__main__":
     if sys.version_info >= (3, 11):
-        main()
+        pygame.init()
+        game_screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+        pygame.display.set_caption("Spite and Malice")
+        main(game_screen)
+
     else:
         print("This script requires at least Python 3.11")
