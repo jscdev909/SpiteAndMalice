@@ -46,6 +46,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
     global connection_count, current_turn, deck, payoff_pile1, payoff_pile2, draw_pile
     global player1_hand, player2_hand, player1_draw_count, player2_draw_count
     global player1_name, player2_name, player1_rematch, player2_rematch, rematch_setup_complete
+    global build_piles, player1_discard_piles, player2_discard_piles
+
     player_number = 0
 
     print(f"[+] Accepted connection from {client_address[0]}:{client_address[1]}", flush=True)
@@ -171,23 +173,24 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     deck = []
                     payoff_pile1 = []
                     payoff_pile2 = []
+                    build_piles = [[], [], [], []]
+                    player1_discard_piles = [[], [], [], []]
+                    player2_discard_piles = [[], [], [], []]
                     draw_pile = []
                     player1_hand = []
                     player2_hand = []
                     card_lock.release()
-                    player1_name = ""
-                    player2_name = ""
                     player1_moves_queue.clear()
                     player2_moves_queue.clear()
                     player1_draw_count = 0
                     player2_draw_count = 0
-                    player1_rematch = None
-                    player2_rematch = None
                     current_turn_lock.acquire()
                     current_turn = 0
                     current_turn_lock.release()
                     rematch_setup_complete = True
                 else:
+                    player1_rematch = None
+                    player2_rematch = None
                     rematch_setup_complete = False
                 rematch_setup_lock.release()
 
@@ -214,8 +217,16 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     build_piles[3] = []
                     draw_pile_needs_to_be_reshuffled = True
 
+                # DEBUG
+                print("DEBUG783838")
+                print(cards_to_shuffle)
+
                 if draw_pile_needs_to_be_reshuffled:
+                    # DEBUG
+                    print("DEBUG82929")
+                    print(len(draw_pile))
                     draw_pile += cards_to_shuffle
+                    print(len(draw_pile))
                     random.shuffle(draw_pile)
 
                 card_lock.release()
@@ -343,6 +354,26 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     send_message(client_socket, str(len(player2_hand)))
                 card_lock.release()
 
+
+            elif "How many cards are left in player" in request and "payoff pile?" in request:
+                target_player = 0
+                pattern = r"player (\d)"
+                first_match = re.search(pattern, request)
+                if first_match and first_match.group(1).strip().isdigit():
+                    target_player = int(first_match.group(1).strip())
+                else:
+                    raise ServerError(
+                        "Could not parse target player ID from client data")
+
+                card_lock.acquire()
+
+                if target_player == 1:
+                    send_message(client_socket, str(len(payoff_pile1)))
+                elif target_player == 2:
+                    send_message(client_socket, str(len(payoff_pile2)))
+
+                card_lock.release()
+
             elif "Send the top card of player" in request and "payoff pile" in request:
                 target_player = 0
                 pattern = r"player (\d)"
@@ -386,25 +417,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                 card_lock.acquire()
                 send_message(client_socket, str(len(draw_pile)))
-                card_lock.release()
-
-            elif "How many cards are left in" in request and "payoff pile?" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
-
-                card_lock.acquire()
-
-                if target_player == 1:
-                    send_message(client_socket, str(len(payoff_pile1)))
-                elif target_player == 2:
-                    send_message(client_socket, str(len(payoff_pile2)))
-
                 card_lock.release()
 
             # elif "How many cards has player" in request and "drawn this turn?" in request:
@@ -1051,6 +1063,9 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
             draw_pile = []
             player1_hand = []
             player2_hand = []
+            build_piles = [[], [], [], []]
+            player1_discard_piles = [[], [], [], []]
+            player2_discard_piles = [[], [], [], []]
             card_lock.release()
             player1_name = ""
             player2_name = ""

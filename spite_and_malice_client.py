@@ -632,6 +632,23 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
             turn_switch = False
 
+        if network_timer == 0:
+            send_message(server_socket, "How many cards are left in player 1's payoff pile?")
+            data = receive_message(server_socket)
+
+            if not data.isdigit():
+                raise ClientError("Invalid length of payoff pile received from server")
+
+            payoff_pile1_remaining_cards = int(data)
+
+            send_message(server_socket,"How many cards are left in player 2's payoff pile?")
+            data = receive_message(server_socket)
+
+            if not data.isdigit():
+                raise ClientError("Invalid length of payoff pile received from server")
+
+            payoff_pile2_remaining_cards = int(data)
+
         if not current_hand and current_turn == player_number:
             send_message(server_socket,f"Player {player_number} draws 5 cards")
 
@@ -672,7 +689,8 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         draggable_cards.append(discard_piles1[2][-1])
                     if discard_piles1[3] and discard_piles1[3][-1] not in draggable_cards:
                         draggable_cards.append(discard_piles1[3][-1])
-                    draggable_cards.append(payoff_pile1_top_card)
+                    if payoff_pile1_top_card is not None:
+                        draggable_cards.append(payoff_pile1_top_card)
                 elif player_number == 2:
                     if discard_piles2[0] and discard_piles2[0][-1] not in draggable_cards:
                         draggable_cards.append(discard_piles2[0][-1])
@@ -682,7 +700,8 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         draggable_cards.append(discard_piles2[2][-1])
                     if discard_piles2[3] and discard_piles2[3][-1] not in draggable_cards:
                         draggable_cards.append(discard_piles2[3][-1])
-                    draggable_cards.append(payoff_pile2_top_card)
+                    if payoff_pile2_top_card is not None:
+                        draggable_cards.append(payoff_pile2_top_card)
                 draggable_cards_set = True
 
                 print("DEBUG------------------")
@@ -782,8 +801,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         if moved_to == "build pile 0":
                             if opponent_player == 1:
                                 build_piles[0].append(payoff_pile1_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile1_remaining_cards = int(data)
+
+                                if payoff_pile1_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile1_top_card = None
+
                                 # if payoff_pile1[-1].name == card_name:
                                 #     build_piles[0].append(payoff_pile1.pop())
                                 #     # Flip over next card
@@ -793,8 +825,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 #     raise ClientError("Issue syncing cards with the server")
                             elif opponent_player == 2:
                                 build_piles[0].append(payoff_pile2_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile2_remaining_cards = int(data)
+
+                                if payoff_pile2_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile2_top_card = None
+
                                 # if payoff_pile2[-1].name == card_name:
                                 #     build_piles[0].append(payoff_pile2.pop())
                                 #     # Flip over next card
@@ -805,8 +850,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         elif moved_to == "build pile 1":
                             if opponent_player == 1:
                                 build_piles[1].append(payoff_pile1_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile1_remaining_cards = int(data)
+
+                                if payoff_pile1_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile1_top_card = None
+
                                 # if payoff_pile1[-1].name == card_name:
                                 #     build_piles[1].append(payoff_pile1.pop())
                                 #     # Flip over next card
@@ -816,8 +874,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 #     raise ClientError("Issue syncing cards with the server")
                             elif opponent_player == 2:
                                 build_piles[1].append(payoff_pile2_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile2_remaining_cards = int(data)
+
+                                if payoff_pile2_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile2_top_card = None
+
                                 # if payoff_pile2[-1].name == card_name:
                                 #     build_piles[1].append(payoff_pile2.pop())
                                 #     # Flip over next card
@@ -828,8 +899,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         elif moved_to == "build pile 2":
                             if opponent_player == 1:
                                 build_piles[2].append(payoff_pile1_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile1_remaining_cards = int(data)
+
+                                if payoff_pile1_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile1_top_card = None
+
                                 # if payoff_pile1[-1].name == card_name:
                                 #     build_piles[2].append(payoff_pile1.pop())
                                 #     # Flip over next card
@@ -839,8 +923,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 #     raise ClientError("Issue syncing cards with the server")
                             elif opponent_player == 2:
                                 build_piles[2].append(payoff_pile2_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile2_remaining_cards = int(data)
+
+                                if payoff_pile2_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile2_top_card = None
+
                                 # if payoff_pile2[-1].name == card_name:
                                 #     build_piles[2].append(payoff_pile2.pop())
                                 #     # Flip over next card
@@ -851,8 +948,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         elif moved_to == "build pile 3":
                             if opponent_player == 1:
                                 build_piles[3].append(payoff_pile1_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile1_remaining_cards = int(data)
+
+                                if payoff_pile1_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile1_top_card = None
+
                                 # if payoff_pile1[-1].name == card_name:
                                 #     build_piles[3].append(payoff_pile1.pop())
                                 #     # Flip over next card
@@ -862,8 +972,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 #     raise ClientError("Issue syncing cards with the server")
                             elif opponent_player == 2:
                                 build_piles[3].append(payoff_pile2_top_card)
-                                send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-                                payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
+                                data = receive_message(server_socket)
+
+                                if not data.isdigit():
+                                    raise ClientError("Invalid length of payoff pile received from server")
+
+                                payoff_pile2_remaining_cards = int(data)
+
+                                if payoff_pile2_remaining_cards > 0:
+                                    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
+                                    payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                else:
+                                    payoff_pile2_top_card = None
+
                                 # if payoff_pile2[-1].name == card_name:
                                 #     build_piles[3].append(payoff_pile2.pop())
                                 #     # Flip over next card
@@ -1096,8 +1219,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 0")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile1_remaining_cards = int(data)
+
+                                        if payoff_pile1_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile1_top_card = None
+
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
@@ -1121,8 +1257,20 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 0")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile2_remaining_cards = int(data)
+
+                                        if payoff_pile2_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile2_top_card = None
 
                                 build_piles[0].append(card_being_dragged)
 
@@ -1169,8 +1317,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 1")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile1_remaining_cards = int(data)
+
+                                        if payoff_pile1_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile1_top_card = None
+
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
@@ -1194,8 +1355,20 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 1")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile2_remaining_cards = int(data)
+
+                                        if payoff_pile2_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile2_top_card = None
 
                                 build_piles[1].append(card_being_dragged)
 
@@ -1243,8 +1416,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 2")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile1_remaining_cards = int(data)
+
+                                        if payoff_pile1_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile1_top_card = None
+
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
@@ -1268,8 +1454,20 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 2")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile2_remaining_cards = int(data)
+
+                                        if payoff_pile2_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile2_top_card = None
 
                                 build_piles[2].append(card_being_dragged)
 
@@ -1316,8 +1514,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 3")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile1_remaining_cards = int(data)
+
+                                        if payoff_pile1_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile1_top_card = None
+
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
@@ -1341,8 +1552,20 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 3")
-                                        send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-                                        payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+
+                                        send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
+                                        data = receive_message(server_socket)
+
+                                        if not data.isdigit():
+                                            raise ClientError("Invalid length of payoff pile received from server")
+
+                                        payoff_pile2_remaining_cards = int(data)
+
+                                        if payoff_pile2_remaining_cards > 0:
+                                            send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
+                                            payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                        else:
+                                            payoff_pile2_top_card = None
 
                                 build_piles[3].append(card_being_dragged)
 
@@ -1603,22 +1826,36 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 current_hand[i].rect.left = 190 + i * 110
                 display_surface.blit(current_hand[i].surface, current_hand[i].rect)
 
+
         if player_number == 1:
-            card_back_rect.left = 25
-            card_back_rect.bottom = WINDOW_HEIGHT
-            display_surface.blit(card_back, card_back_rect)
-            if payoff_pile1_top_card != card_being_dragged:
-                payoff_pile1_top_card.rect.left = 25
-                payoff_pile1_top_card.rect.bottom = WINDOW_HEIGHT
-                display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
+            if payoff_pile1_remaining_cards > 1:
+                card_back_rect.left = 25
+                card_back_rect.bottom = WINDOW_HEIGHT
+                display_surface.blit(card_back, card_back_rect)
+                if payoff_pile1_top_card != card_being_dragged:
+                    payoff_pile1_top_card.rect.left = 25
+                    payoff_pile1_top_card.rect.bottom = WINDOW_HEIGHT
+                    display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
+            else:
+                if payoff_pile1_top_card != card_being_dragged:
+                    payoff_pile1_top_card.rect.left = 25
+                    payoff_pile1_top_card.rect.bottom = WINDOW_HEIGHT
+                    display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
         elif player_number == 2:
-            card_back_rect.left = 25
-            card_back_rect.bottom = WINDOW_HEIGHT
-            display_surface.blit(card_back, card_back_rect)
-            if payoff_pile2_top_card != card_being_dragged:
-                payoff_pile2_top_card.rect.left = 25
-                payoff_pile2_top_card.rect.bottom = WINDOW_HEIGHT
-                display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
+            if payoff_pile2_remaining_cards > 1:
+                card_back_rect.left = 25
+                card_back_rect.bottom = WINDOW_HEIGHT
+                display_surface.blit(card_back, card_back_rect)
+                if payoff_pile2_top_card != card_being_dragged:
+                    payoff_pile2_top_card.rect.left = 25
+                    payoff_pile2_top_card.rect.bottom = WINDOW_HEIGHT
+                    display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
+            else:
+                if payoff_pile2_top_card != card_being_dragged:
+                    payoff_pile2_top_card.rect.left = 25
+                    payoff_pile2_top_card.rect.bottom = WINDOW_HEIGHT
+                    display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
+
 
         # if player_number == 1:
         #     for payoff_card in payoff_pile1:
@@ -1734,13 +1971,15 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                     discard_piles1_rects[z] = pygame.draw.rect(display_surface, WHITE, (WINDOW_WIDTH - 325 - (z * 125), 175, 100, 150), 2)
 
         if player_number == 1:
-            payoff_pile2_top_card.rect.right = WINDOW_WIDTH - 25
-            payoff_pile2_top_card.rect.top = 0
-            display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
+            if payoff_pile2_top_card is not None:
+                payoff_pile2_top_card.rect.right = WINDOW_WIDTH - 25
+                payoff_pile2_top_card.rect.top = 0
+                display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
         elif player_number == 2:
-            payoff_pile1_top_card.rect.right = WINDOW_WIDTH - 25
-            payoff_pile1_top_card.rect.top = 0
-            display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
+            if payoff_pile1_top_card is not None:
+                payoff_pile1_top_card.rect.right = WINDOW_WIDTH - 25
+                payoff_pile1_top_card.rect.top = 0
+                display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
 
         # if player_number == 1:
         #     for stock_card in payoff_pile2:
@@ -1763,7 +2002,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         #             card_back_rect.top = 0
         #             display_surface.blit(card_back, card_back_rect)
 
-        if network_timer == 0:
+        if network_timer == 0 or first_turn:
             send_message(server_socket, f"How many cards are in player {opponent_player}'s hand?")
             data = receive_message(server_socket)
             if data.isdigit():
@@ -1845,27 +2084,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         display_surface.blit(build_pile_value3_text, build_pile_value3_rect)
         display_surface.blit(build_pile_value4_text, build_pile_value4_rect)
 
-        if network_timer == 0 or first_turn:
-            send_message(server_socket, "How many cards are left in player 1's payoff pile?")
-            data = receive_message(server_socket)
-
-            if not data.isdigit():
-                raise ClientError("Invalid length of payoff pile received from server")
-
-            payoff_pile1_remaining_cards = data
-
-            send_message(server_socket,"How many cards are left in player 2's payoff pile?")
-            data = receive_message(server_socket)
-
-            if not data.isdigit():
-                raise ClientError(
-                    "Invalid length of payoff pile received from server")
-
-            payoff_pile2_remaining_cards = data
-
-        payoff_pile1_remaining_cards_text = font.render(payoff_pile1_remaining_cards, True, WHITE, DARK_GREEN)
+        payoff_pile1_remaining_cards_text = font.render(str(payoff_pile1_remaining_cards), True, WHITE, DARK_GREEN)
         payoff_pile1_remaining_cards_rect = payoff_pile1_remaining_cards_text.get_rect()
-        payoff_pile2_remaining_cards_text = font.render(payoff_pile2_remaining_cards, True, WHITE, DARK_GREEN)
+        payoff_pile2_remaining_cards_text = font.render(str(payoff_pile2_remaining_cards), True, WHITE, DARK_GREEN)
         payoff_pile2_remaining_cards_rect = payoff_pile2_remaining_cards_text.get_rect()
 
         if player_number == 1:
