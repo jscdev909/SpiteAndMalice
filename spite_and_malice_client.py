@@ -42,6 +42,21 @@ class RematchErrorStatus(Enum):
     UNSET = 0,
     ERROR_RECEIVING_CARD_DATA = 1
 
+class NetworkHandlerStatus(Enum):
+    UNSET = 0,
+    RUNNING = 1,
+    ERROR = 2
+
+class NetworkHandlerErrorStatus(Enum):
+    UNSET = 0,
+    OTHER_PLAYER_DISCONNECTED = 1
+    INVALID_PAYOFF_PILE1_LENGTH = 2,
+    INVALID_PAYOFF_PILE2_LENGTH = 3,
+    INVALID_DRAW_PILE_LENGTH = 4,
+    INVALID_OPPONENT_HAND_LENGTH = 5,
+    INVALID_GAME_RESULT_RESPONSE = 6,
+    INVALID_GAME_WINNER = 7
+
 
 class ClientError(Exception):
     pass
@@ -68,6 +83,19 @@ opponent_player_name = ""
 payoff_pile1_top_card = None
 payoff_pile2_top_card = None
 
+network_timer = 20
+game_in_progress = False
+
+payoff_pile1_remaining_cards = 0
+payoff_pile2_remaining_cards = 0
+draw_pile_remaining_cards = 0
+
+opponents_hand_size = 0
+
+game_result_text = None
+
+network_traffic_lock = threading.Lock()
+
 sound_option = "On"
 card_back_color_option = "Red"
 
@@ -76,6 +104,9 @@ initial_setup_error_status = SetupErrorStatus.UNSET
 
 rematch_setup_status = RematchStatus.UNSET
 rematch_setup_error_status = RematchErrorStatus.UNSET
+
+network_handler_status = NetworkHandlerStatus.UNSET
+network_handler_error_status = NetworkHandlerErrorStatus.UNSET
 
 
 def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
@@ -541,10 +572,115 @@ def perform_rematch_setup(server_socket: socket.socket):
     return
 
 
+def game_networking_handler(server_socket: socket.socket):
+    global network_timer, game_in_progress, network_handler_status, network_handler_error_status
+    global payoff_pile1_remaining_cards, payoff_pile2_remaining_cards, draw_pile_remaining_cards
+    global opponents_hand_size, game_result_text, network_traffic_lock
+
+    network_handler_status = NetworkHandlerStatus.RUNNING
+
+    while game_in_progress:
+        if network_timer == 0:
+
+            network_traffic_lock.acquire()
+            send_message(server_socket, "Is the other player still connected?")
+            data = receive_message(server_socket)
+            network_traffic_lock.release()
+
+            if data == "No":
+                network_handler_status = NetworkHandlerStatus.ERROR
+                network_handler_error_status = NetworkHandlerErrorStatus.OTHER_PLAYER_DISCONNECTED
+
+            network_traffic_lock.acquire()
+            send_message(server_socket,"How many cards are left in player 1's payoff pile?")
+            data = receive_message(server_socket)
+            network_traffic_lock.release()
+
+            if not data.isdigit():
+                network_handler_status = NetworkHandlerStatus.ERROR
+                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE1_LENGTH
+
+            payoff_pile1_remaining_cards = int(data)
+
+            network_traffic_lock.acquire()
+            send_message(server_socket,
+                         "How many cards are left in player 2's payoff pile?")
+            data = receive_message(server_socket)
+            network_traffic_lock.release()
+
+            if not data.isdigit():
+                network_handler_status = NetworkHandlerStatus.ERROR
+                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE2_LENGTH
+
+            payoff_pile2_remaining_cards = int(data)
+
+            network_traffic_lock.acquire()
+            send_message(server_socket,"How many cards are left in the draw pile?")
+            data = receive_message(server_socket)
+            network_traffic_lock.release()
+
+            if data.isdigit():
+                draw_pile_remaining_cards = int(data)
+            else:
+                network_handler_status = NetworkHandlerStatus.ERROR
+                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_DRAW_PILE_LENGTH
+
+            network_traffic_lock.acquire()
+            send_message(server_socket,f"How many cards are in player {opponent_player}'s hand?")
+            data = receive_message(server_socket)
+            network_traffic_lock.release()
+
+            if data.isdigit():
+                opponents_hand_size = int(data)
+            else:
+                network_handler_status = NetworkHandlerStatus.ERROR
+                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_OPPONENT_HAND_LENGTH
+
+            network_traffic_lock.acquire()
+            send_message(server_socket,"Has the game result been determined?")
+            data = receive_message(server_socket)
+            network_traffic_lock.release()
+
+            if data == "Yes":
+
+                network_traffic_lock.acquire()
+                send_message(server_socket, "Who won the game?")
+                data = receive_message(server_socket)
+                network_traffic_lock.release()
+
+                # Win / lose / stalemate conditions
+                if player_number == 1 and data == "Player 1" or player_number == 2 and data == "Player 2":
+                    game_result_text = pygame.font.SysFont("Arial", 60).render("YOU WIN!", True, WHITE)
+                elif player_number == 2 and data == "Player 1" or player_number == 1 and data == "Player 2":
+                    game_result_text = pygame.font.SysFont("Arial", 60).render("Sorry, you lose!", True, WHITE)
+                elif data == "Stalemate":
+                    game_result_text = pygame.font.SysFont("Arial", 60).render("STALEMATE!", True, WHITE)
+                else:
+                    network_handler_status = NetworkHandlerStatus.ERROR
+                    network_handler_error_status = NetworkHandlerErrorStatus.INVALID_GAME_WINNER
+
+            elif data != "No":
+                network_handler_status = NetworkHandlerStatus.ERROR
+                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_GAME_RESULT_RESPONSE
+
+        if network_timer == 0:
+            network_timer = 20
+        else:
+            network_timer -= 1
+
+    network_handler_status = NetworkHandlerStatus.UNSET
+
+    return
+
+
 def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
     global player_number, opponent_player, sound_option
     global payoff_pile1_top_card, payoff_pile2_top_card, rematch_setup_status, rematch_setup_error_status
+    global payoff_pile1_remaining_cards, payoff_pile2_remaining_cards, draw_pile_remaining_cards
+    global opponents_hand_size, game_result_text, game_in_progress
+    global network_handler_status, network_handler_error_status
+    global network_traffic_lock
 
     socket_closed = False
 
@@ -553,11 +689,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
     draggable_cards = []
     draggable_cards_set = False
     draw_pile_needs_to_be_reshuffled = False
-
-    payoff_pile1_remaining_cards = 0
-    payoff_pile2_remaining_cards = 0
-
-    opponents_hand_size = 0
 
     clock = pygame.time.Clock()
 
@@ -594,7 +725,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
     card_back_rect = card_back.get_rect()
 
     font = pygame.font.SysFont("Arial", 30)
-    game_result_font = pygame.font.SysFont("Arial", 60)
 
     currently_dragging_card = False
     card_being_dragged = None
@@ -602,23 +732,53 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
     original_dragging_x = 0
     original_dragging_y = 0
 
-    network_timer = 10
+    screen_refresh_timer = 20
 
     running = True
 
     turn_switch = False
 
+    # Used to signal the networking thread that it should keep running
+    game_in_progress = True
+
+    # Start the networking thread
+    networking_thread = threading.Thread(target=game_networking_handler, args=(server_socket,), daemon=True)
+    networking_thread.start()
+
     while running:
 
-        if network_timer == 0 or first_turn:
-            send_message(server_socket, "Is the other player still connected?")
-            data = receive_message(server_socket)
-            if data == "No":
+        # if network_timer == 0 or first_turn:
+        #     send_message(server_socket, "Is the other player still connected?")
+        #     data = receive_message(server_socket)
+        #     if data == "No":
+        #         raise ClientError("Other player disconnected!")
+
+        # Check the networking thread status
+        if network_handler_status == NetworkHandlerStatus.ERROR:
+            # Signal the networking thread to stop
+            game_in_progress = False
+            networking_thread.join()
+            if network_handler_error_status == NetworkHandlerErrorStatus.OTHER_PLAYER_DISCONNECTED:
                 raise ClientError("Other player disconnected!")
+            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE1_LENGTH:
+                raise ClientError("Invalid payoff pile 1 length received from server")
+            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE2_LENGTH:
+                raise ClientError("Invalid payoff pile 2 length received from server")
+            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_DRAW_PILE_LENGTH:
+                raise ClientError("Invalid draw pile length received from server")
+            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_OPPONENT_HAND_LENGTH:
+                raise ClientError("Invalid opponent hand length received from server")
+            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_GAME_RESULT_RESPONSE:
+                raise ClientError("Invalid game result response received from server")
+            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_GAME_WINNER:
+                raise ClientError("Invalid game winner received from server")
 
         if turn_switch or first_turn:
+
+            network_traffic_lock.acquire()
             send_message(server_socket, "Whose turn is it?")
             data = receive_message(server_socket)
+            network_traffic_lock.release()
 
             if data:
                 if data[-1].isdigit() and int(data[-1]) != current_turn:
@@ -633,27 +793,29 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
             turn_switch = False
 
-        if network_timer == 0:
-            send_message(server_socket, "How many cards are left in player 1's payoff pile?")
-            data = receive_message(server_socket)
-
-            if not data.isdigit():
-                raise ClientError("Invalid length of payoff pile received from server")
-
-            payoff_pile1_remaining_cards = int(data)
-
-            send_message(server_socket,"How many cards are left in player 2's payoff pile?")
-            data = receive_message(server_socket)
-
-            if not data.isdigit():
-                raise ClientError("Invalid length of payoff pile received from server")
-
-            payoff_pile2_remaining_cards = int(data)
+        # if network_timer == 0:
+        #     send_message(server_socket, "How many cards are left in player 1's payoff pile?")
+        #     data = receive_message(server_socket)
+        #
+        #     if not data.isdigit():
+        #         raise ClientError("Invalid length of payoff pile received from server")
+        #
+        #     payoff_pile1_remaining_cards = int(data)
+        #
+        #     send_message(server_socket,"How many cards are left in player 2's payoff pile?")
+        #     data = receive_message(server_socket)
+        #
+        #     if not data.isdigit():
+        #         raise ClientError("Invalid length of payoff pile received from server")
+        #
+        #     payoff_pile2_remaining_cards = int(data)
 
         if not current_hand and current_turn == player_number:
-            send_message(server_socket,f"Player {player_number} draws 5 cards")
 
+            network_traffic_lock.acquire()
+            send_message(server_socket,f"Player {player_number} draws 5 cards")
             current_hand = receive_cards(server_socket, 5)
+            network_traffic_lock.release()
 
             # if len(draw_pile) >= 5:
             #     for _ in range(0, 5, 1):
@@ -719,8 +881,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 draggable_cards_set = True
 
 
-            if network_timer == 0:
-
             #     send_message(server_socket, f"How many cards has player {opponent_player} drawn this turn?")
             #     data = receive_message(server_socket)
             #
@@ -735,24 +895,24 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             #     else:
             #         raise ClientError("Received invalid number of opponent draws from server")
 
+            if screen_refresh_timer == 0:
+                network_traffic_lock.acquire()
                 send_message(server_socket, f"What was player {opponent_player}'s last move?")
                 data = receive_message(server_socket)
+
                 if data != "Nothing":
-                    card_name = ""
                     pattern = r"moved\b(.*)\bfrom"
                     first_match = re.search(pattern, data)
                     if first_match:
                         card_name = first_match.group(1).strip()
                     else:
                         raise ClientError("Could not parse card name from server message")
-                    moved_from = ""
                     pattern = r"from\b(.*)\bto"
                     first_match = re.search(pattern, data)
                     if first_match:
                         moved_from = first_match.group(1).strip()
                     else:
                         raise ClientError("Could not parse 'moved from' location from server message")
-                    moved_to = ""
                     pattern = r"to\b(.*)$"
                     first_match = re.search(pattern, data)
                     if first_match:
@@ -764,6 +924,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
                         # Receive a card from the server
                         received_card = receive_cards(server_socket, 1)[0]
+                        network_traffic_lock.release()
 
                         if moved_to == "discard pile 0":
                             if opponent_player == 1:
@@ -996,193 +1157,204 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 # else:
                                 #     raise ClientError("Issue syncing cards with the server")
 
+                        network_traffic_lock.release()
+
                     elif moved_from == "discard pile 0":
+                        network_traffic_lock.release()
                         if moved_to == "build pile 0":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[0][-1].name:
                                     build_piles[0].append(discard_piles1[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[0][-1].name:
                                     build_piles[0].append(discard_piles2[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 1":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[0][-1].name:
                                     build_piles[1].append(discard_piles1[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[0][-1].name:
                                     build_piles[1].append(discard_piles2[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 2":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[0][-1].name:
                                     build_piles[2].append(discard_piles1[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[0][-1].name:
                                     build_piles[2].append(discard_piles2[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 3":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[0][-1].name:
                                     build_piles[3].append(discard_piles1[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[0][-1].name:
                                     build_piles[3].append(discard_piles2[0].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
 
                     elif moved_from == "discard pile 1":
+                        network_traffic_lock.release()
                         if moved_to == "build pile 0":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[1][-1].name:
                                     build_piles[0].append(discard_piles1[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[1][-1].name:
                                     build_piles[0].append(discard_piles2[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 1":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[1][-1].name:
                                     build_piles[1].append(discard_piles1[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[1][-1].name:
                                     build_piles[1].append(discard_piles2[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 2":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[1][-1].name:
                                     build_piles[2].append(discard_piles1[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[1][-1].name:
                                     build_piles[2].append(discard_piles2[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 3":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[1][-1].name:
                                     build_piles[3].append(discard_piles1[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[1][-1].name:
                                     build_piles[3].append(discard_piles2[1].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
 
                     elif moved_from == "discard pile 2":
+                        network_traffic_lock.release()
                         if moved_to == "build pile 0":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[2][-1].name:
                                     build_piles[0].append(discard_piles1[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[2][-1].name:
                                     build_piles[0].append(discard_piles2[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 1":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[2][-1].name:
                                     build_piles[1].append(discard_piles1[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[2][-1].name:
                                     build_piles[1].append(discard_piles2[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 2":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[2][-1].name:
                                     build_piles[2].append(discard_piles1[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[2][-1].name:
                                     build_piles[2].append(discard_piles2[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 3":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[2][-1].name:
                                     build_piles[3].append(discard_piles1[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[2][-1].name:
                                     build_piles[3].append(discard_piles2[2].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
 
                     elif moved_from == "discard pile 3":
+                        network_traffic_lock.release()
                         if moved_to == "build pile 0":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[3][-1].name:
                                     build_piles[0].append(discard_piles1[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[3][-1].name:
                                     build_piles[0].append(discard_piles2[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 1":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[3][-1].name:
                                     build_piles[1].append(discard_piles1[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[3][-1].name:
                                     build_piles[1].append(discard_piles2[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 2":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[3][-1].name:
                                     build_piles[2].append(discard_piles1[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[3][-1].name:
                                     build_piles[2].append(discard_piles2[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                         elif moved_to == "build pile 3":
                             if opponent_player == 1:
                                 if card_name == discard_piles1[3][-1].name:
                                     build_piles[3].append(discard_piles1[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
                             elif opponent_player == 2:
                                 if card_name == discard_piles2[3][-1].name:
                                     build_piles[3].append(discard_piles2[3].pop())
                                 else:
-                                    raise ClientError("Issue syncing cards with the server")
+                                    raise ClientError("Issue syncing card moves with the server")
+                else:
+                    network_traffic_lock.release()
 
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                # Signal the networking thread to stop
+                game_in_progress = False
+                networking_thread.join()
                 running = False
 
             if event.type == pygame.MOUSEBUTTONUP:
@@ -1195,34 +1367,47 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
                                 card_being_dragged.rect.x = build_piles_rects[0].x
                                 card_being_dragged.rect.y = build_piles_rects[0].y
+
                                 draggable_cards.remove(card_being_dragged)
 
                                 if player_number == 1:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 0")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles1[0]:
                                         discard_piles1[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[1]:
                                         discard_piles1[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[2]:
                                         discard_piles1[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[3]:
                                         discard_piles1[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile1_top_card:
                                         # payoff_pile1.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 0")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1230,37 +1415,51 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile1_remaining_cards = int(data)
 
                                         if payoff_pile1_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile1_top_card = None
 
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 0")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles2[0]:
                                         discard_piles2[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[1]:
                                         discard_piles2[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[2]:
                                         discard_piles2[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[3]:
                                         discard_piles2[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 0")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile2_top_card:
                                         # payoff_pile2.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 0")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1268,8 +1467,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile2_remaining_cards = int(data)
 
                                         if payoff_pile2_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile2_top_card = None
 
@@ -1298,29 +1499,41 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 if player_number == 1:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 1")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles1[0]:
                                         discard_piles1[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[1]:
                                         discard_piles1[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[2]:
                                         discard_piles1[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[3]:
                                         discard_piles1[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile1_top_card:
                                         # payoff_pile1.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 1")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1328,37 +1541,51 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile1_remaining_cards = int(data)
 
                                         if payoff_pile1_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile1_top_card = None
 
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 1")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles2[0]:
                                         discard_piles2[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[1]:
                                         discard_piles2[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[2]:
                                         discard_piles2[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[3]:
                                         discard_piles2[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 1")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile2_top_card:
                                         # payoff_pile2.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 1")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1366,8 +1593,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile2_remaining_cards = int(data)
 
                                         if payoff_pile2_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile2_top_card = None
 
@@ -1397,29 +1626,41 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 if player_number == 1:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 2")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles1[0]:
                                         discard_piles1[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[1]:
                                         discard_piles1[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[2]:
                                         discard_piles1[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[3]:
                                         discard_piles1[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile1_top_card:
                                         # payoff_pile1.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 2")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1427,37 +1668,51 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile1_remaining_cards = int(data)
 
                                         if payoff_pile1_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile1_top_card = None
 
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 2")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles2[0]:
                                         discard_piles2[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[1]:
                                         discard_piles2[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[2]:
                                         discard_piles2[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[3]:
                                         discard_piles2[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 2")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile2_top_card:
                                         # payoff_pile2.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 2")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1465,8 +1720,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile2_remaining_cards = int(data)
 
                                         if payoff_pile2_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile2_top_card = None
 
@@ -1495,29 +1752,41 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                 if player_number == 1:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 3")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles1[0]:
                                         discard_piles1[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[1]:
                                         discard_piles1[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[2]:
                                         discard_piles1[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles1[3]:
                                         discard_piles1[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile1_top_card:
                                         # payoff_pile1.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile1:
                                         #     payoff_pile1[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 3")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1525,37 +1794,51 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile1_remaining_cards = int(data)
 
                                         if payoff_pile1_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile1_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile1_top_card = None
 
                                 elif player_number == 2:
                                     if card_being_dragged in current_hand:
                                         current_hand.remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to build pile 3")
+                                        network_traffic_lock.release()
                                         card_being_dragged.position = CardPosition.FACE_UP
                                     elif card_being_dragged in discard_piles2[0]:
                                         discard_piles2[0].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 0 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[1]:
                                         discard_piles2[1].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 1 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[2]:
                                         discard_piles2[2].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 2 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged in discard_piles2[3]:
                                         discard_piles2[3].remove(card_being_dragged)
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 3")
+                                        network_traffic_lock.release()
                                     elif card_being_dragged == payoff_pile2_top_card:
                                         # payoff_pile2.remove(card_being_dragged)
                                         # # Flip over next card
                                         # if payoff_pile2:
                                         #     payoff_pile2[-1].position = CardPosition.FACE_UP
+                                        network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 3")
 
                                         send_message(server_socket,f"How many cards are left in player {player_number}'s payoff pile?")
                                         data = receive_message(server_socket)
+                                        network_traffic_lock.release()
 
                                         if not data.isdigit():
                                             raise ClientError("Invalid length of payoff pile received from server")
@@ -1563,8 +1846,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         payoff_pile2_remaining_cards = int(data)
 
                                         if payoff_pile2_remaining_cards > 0:
+                                            network_traffic_lock.acquire()
                                             send_message(server_socket,f"Send the top card of player {player_number}'s payoff pile")
                                             payoff_pile2_top_card = receive_cards(server_socket, 1)[0]
+                                            network_traffic_lock.release()
                                         else:
                                             payoff_pile2_top_card = None
 
@@ -1588,12 +1873,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles1_rects[0].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 0")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles1[0].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1615,12 +1904,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles1_rects[1].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 1")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles1[1].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1642,12 +1935,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles1_rects[2].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 2")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles1[2].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1669,12 +1966,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles1_rects[3].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 3")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles1[3].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1696,12 +1997,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles2_rects[0].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 0")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles2[0].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1724,12 +2029,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles2_rects[1].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 1")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles2[1].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1751,12 +2060,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles2_rects[2].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 2")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles2[2].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -1778,12 +2091,16 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     card_being_dragged.y = discard_piles2_rects[3].y
                                     draggable_cards.remove(card_being_dragged)
                                     current_hand.remove(card_being_dragged)
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their hand to discard pile 3")
+                                    network_traffic_lock.release()
                                     card_being_dragged.position = CardPosition.FACE_UP
                                     discard_piles2[3].append(card_being_dragged)
                                     currently_dragging_card = False
                                     card_being_dragged = None
+                                    network_traffic_lock.acquire()
                                     send_message(server_socket, f"Player {player_number} ended their turn")
+                                    network_traffic_lock.release()
                                     turn_switch = True
 
                                 else:
@@ -2003,13 +2320,13 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         #             card_back_rect.top = 0
         #             display_surface.blit(card_back, card_back_rect)
 
-        if network_timer == 0 or first_turn:
-            send_message(server_socket, f"How many cards are in player {opponent_player}'s hand?")
-            data = receive_message(server_socket)
-            if data.isdigit():
-                opponents_hand_size = int(data)
-            else:
-                raise ClientError("Received an invalid number of cards in opponents hand")
+        # if network_timer == 0 or first_turn:
+        #     send_message(server_socket, f"How many cards are in player {opponent_player}'s hand?")
+        #     data = receive_message(server_socket)
+        #     if data.isdigit():
+        #         opponents_hand_size = int(data)
+        #     else:
+        #         raise ClientError("Received an invalid number of cards in opponents hand")
 
         for i in range(0, opponents_hand_size, 1):
             card_back_rect.x = 190 + i * 110
@@ -2104,9 +2421,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         display_surface.blit(payoff_pile1_remaining_cards_text, payoff_pile1_remaining_cards_rect)
         display_surface.blit(payoff_pile2_remaining_cards_text, payoff_pile2_remaining_cards_rect)
 
-        send_message(server_socket, "How many cards are left in the draw pile?")
-        remaining_draw_pile_cards = receive_message(server_socket)
-        draw_pile_remaining_cards_text = font.render(f"Remaining\ndraw pile\ncards: {remaining_draw_pile_cards}", True, WHITE, DARK_GREEN)
+        draw_pile_remaining_cards_text = font.render(f"Remaining\ndraw pile\ncards: {str(draw_pile_remaining_cards)}", True, WHITE, DARK_GREEN)
         draw_pile_remaining_cards_rect = draw_pile_remaining_cards_text.get_rect()
         draw_pile_remaining_cards_rect.x = 25
         draw_pile_remaining_cards_rect.y = WINDOW_HEIGHT // 2
@@ -2115,24 +2430,24 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         if currently_dragging_card:
             display_surface.blit(card_being_dragged.surface, card_being_dragged.rect)
 
-        game_result_text = None
-
-        if network_timer == 0:
-            send_message(server_socket, "Has the game result been determined?")
-            data = receive_message(server_socket)
-
-            if data == "Yes":
-
-                send_message(server_socket, "Who won the game?")
-                data = receive_message(server_socket)
-
-                # Win / lose / stalemate conditions
-                if player_number == 1 and data == "Player 1" or player_number == 2 and data == "Player 2":
-                    game_result_text = game_result_font.render("YOU WIN!", True, WHITE)
-                elif player_number == 2 and data == "Player 1" or player_number == 1 and data == "Player 2":
-                    game_result_text = game_result_font.render("Sorry, you lose!", True, WHITE)
-                elif data == "Stalemate":
-                    game_result_text = game_result_font.render("STALEMATE!", True, WHITE)
+        # game_result_text = None
+        #
+        # if network_timer == 0:
+        #     send_message(server_socket, "Has the game result been determined?")
+        #     data = receive_message(server_socket)
+        #
+        #     if data == "Yes":
+        #
+        #         send_message(server_socket, "Who won the game?")
+        #         data = receive_message(server_socket)
+        #
+        #         # Win / lose / stalemate conditions
+        #         if player_number == 1 and data == "Player 1" or player_number == 2 and data == "Player 2":
+        #             game_result_text = game_result_font.render("YOU WIN!", True, WHITE)
+        #         elif player_number == 2 and data == "Player 1" or player_number == 1 and data == "Player 2":
+        #             game_result_text = game_result_font.render("Sorry, you lose!", True, WHITE)
+        #         elif data == "Stalemate":
+        #             game_result_text = game_result_font.render("STALEMATE!", True, WHITE)
 
         if game_result_text is None:
             if len(build_piles[0]) == 12:
@@ -2148,7 +2463,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 build_piles[3] = []
                 draw_pile_needs_to_be_reshuffled = True
             if draw_pile_needs_to_be_reshuffled:
+                network_traffic_lock.acquire()
                 send_message(server_socket, "Draw pile needs to be reshuffled")
+                network_traffic_lock.release()
                 if sound_option == "On":
                     shuffle_sound_effect = pygame.mixer.Sound(get_path("assets/shuffle_cards.wav"))
                     shuffle_sound_effect.play()
@@ -2168,10 +2485,21 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 pygame.time.wait(1000)
             first_turn = False
 
+        if screen_refresh_timer == 0:
+            screen_refresh_timer = 20
+        else:
+            screen_refresh_timer -= 1
+
         user_quit_game = False
         go_to_title_screen = False
-        if game_result_text is not None:
+
+        if game_result_text is not None and isinstance(game_result_text, pygame.Surface):
             draggable_cards = []
+
+            # Signal the networking thread to stop
+            game_in_progress = False
+            networking_thread.join()
+
             rematch_manager = pygame_gui.UIManager(
                 (WINDOW_WIDTH, WINDOW_HEIGHT), theme_path="theme.json")
 
@@ -2198,7 +2526,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                             paused = False
 
                         if event.ui_element == no_button:
+                            network_traffic_lock.acquire()
                             send_message(server_socket, f"Player {player_number} did not want a re-match")
+                            network_traffic_lock.release()
                             paused = False
 
                     rematch_manager.process_events(event)
@@ -2230,7 +2560,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 display_surface.blit(status_text, status_rect)
                 pygame.display.update()
 
+                network_traffic_lock.acquire()
                 send_message(server_socket,f"Player {player_number} wants a re-match")
+                network_traffic_lock.release()
 
                 rematch_manager2 = pygame_gui.UIManager(
                     (WINDOW_WIDTH, WINDOW_HEIGHT), theme_path="theme.json")
@@ -2261,8 +2593,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
                     rematch_manager2.update(time_delta)
 
+                    network_traffic_lock.acquire()
                     send_message(server_socket,f"Does player {opponent_player} also want a re-match?")
                     data = receive_message(server_socket)
+                    network_traffic_lock.release()
 
                     if data == "No":
                         display_surface.fill(DARK_GREEN)
@@ -2283,7 +2617,9 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         display_surface.blit(status_text, status_rect)
                         pygame.display.update()
 
+                        network_traffic_lock.acquire()
                         send_message(server_socket, "Set up a new game")
+                        network_traffic_lock.release()
 
                         discard_piles1 = [[], [], [], []]
                         discard_piles2 = [[], [], [], []]
@@ -2291,6 +2627,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         draggable_cards_set = False
                         first_turn = True
                         current_hand = []
+                        game_result_text = None
 
                         rematch_setup_thread = threading.Thread(target=perform_rematch_setup, args=(server_socket,), daemon=True)
                         rematch_setup_thread.start()
@@ -2318,6 +2655,13 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     "Re-match setup complete! Entering new game...",
                                     True, WHITE)
                                 setting_up_rematch = False
+
+                                # Used to signal the networking thread that it should keep running
+                                game_in_progress = True
+
+                                # Start the networking thread
+                                networking_thread = threading.Thread(target=game_networking_handler, args=(server_socket,), daemon=True)
+                                networking_thread.start()
 
                             display_surface.fill(DARK_GREEN)
                             status_rect = status_text.get_rect()
@@ -2352,17 +2696,10 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             main(display_surface)
             break
 
-        if network_timer == 0:
-            network_timer = 10
-        else:
-            network_timer -= 1
-
         pygame.display.update()
 
-
-
     if not socket_closed:
-        server_socket.close()
+       server_socket.close()
 
 
 def main(display_surface: pygame.Surface):
@@ -2472,7 +2809,6 @@ def main(display_surface: pygame.Surface):
         except ClientError as ce:
             server_socket.close()
             display_surface.fill(DARK_GREEN)
-            error_message = ""
             if "]" in str(ce):
                 error_message = "There was an issue communicating with the server.\nPlease restart the program and try again."
             elif str(ce) == "timed out":
