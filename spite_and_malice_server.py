@@ -11,7 +11,7 @@ from socket_utils import receive_message, send_message
 from path_utils import get_path
 from pathlib import Path
 
-VERSION = "dev.1.7.26"
+VERSION = "0.20"
 HOST = "0.0.0.0"
 
 connection_count = 0
@@ -231,55 +231,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                 card_lock.release()
 
-                # # Receive length of new draw pile from client
-                # draw_pile_length = receive_message(client_socket)
-                #
-                # card_lock.acquire()
-                #
-                # # If length of new draw pile is equal to what we already have
-                # # the other thread already added cards and reshuffled the draw pile
-                # if int(draw_pile_length) == len(draw_pile):
-                #     send_message(client_socket, "Already taken care of")
-                # else:
-                #     send_message(client_socket, "Ready to receive new draw pile cards")
-                #
-                #     # First receive number of new cards added to the draw pile
-                #     additional_cards_length = receive_message(client_socket)
-                #     if additional_cards_length and additional_cards_length.strip().isdigit():
-                #         additional_cards_length = int(additional_cards_length.strip())
-                #     else:
-                #         raise ServerError("Received an invalid number of new draw pile cards from the client")
-                #
-                #     # Then receive the actual cards to add to the draw pile
-                #     additional_cards = receive_cards(client_socket, additional_cards_length)
-                #     if not additional_cards:
-                #         raise ServerError("Could not receive additional draw pile cards from client")
-                #
-                #     draw_pile += additional_cards
-                #     random.shuffle(draw_pile)
-                #
-                #     # DEBUG
-                #     print("Listing card names for new draw pile on server", flush=True)
-                #     for index, draw_pile_card in enumerate(list(draw_pile)):
-                #         draw_pile_card.order = index
-                #         print(f"{draw_pile_card.name}: {draw_pile_card.order}", flush=True)
-                #
-                # card_lock.release()
-
-
-            # elif request == "Please send the draw pile":
-            #
-            #     card_lock.acquire()
-            #
-            #     # Send number of cards in the new draw pile first
-            #     send_message(client_socket, str(len(draw_pile)))
-            #
-            #     # Then send the actual cards to the client
-            #     send_cards(client_socket, draw_pile)
-            #
-            #     card_lock.release()
-
-
             elif request == "Create new deck and payoff piles":
                 card_lock.acquire()
 
@@ -292,30 +243,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 else:
                     print(f"[*] Status update from player {player_number} thread: other thread already created decks and piles", flush=True)
 
-                # send_message(client_socket, "Sending payoff pile 1")
-                # print(f"[*] Length of payoff pile 1: {len(payoff_pile1)}",
-                #       flush=True)
-                # print("Payoff pile 1 on server side:", flush=True)
-                # for card in payoff_pile1:
-                #     print(f"{card.name}: {card.order}", flush=True)
-                # send_cards(client_socket, payoff_pile1)
-                #
-                # send_message(client_socket, "Sending payoff pile 2")
-                # print(f"[*] Length of payoff pile 2: {len(payoff_pile2)}",
-                #       flush=True)
-                # print("Payoff pile 2 on server side:", flush=True)
-                # for card in payoff_pile2:
-                #     print(f"{card.name}: {card.order}", flush=True)
-                # send_cards(client_socket, payoff_pile2)
-                #
-                # send_message(client_socket, "Sending draw pile")
-                # print(f"[*] Length of draw pile: {len(draw_pile)}",
-                #       flush=True)
-                # print("Draw pile on server side:", flush=True)
-                # for card in draw_pile:
-                #     print(f"{card.name}: {card.order}", flush=True)
-                # send_cards(client_socket, draw_pile)
-
                 card_lock.release()
 
             elif request == "Is the other player still connected?":
@@ -325,18 +252,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 elif connection_count == 2:
                     send_message(client_socket, "Yes")
                 connection_count_lock.release()
-
-            # elif request == "Have both players received the decks and piles?":
-            #     lock = players_with_decks_lock.acquire(timeout=2)
-            #     if lock:
-            #         if players_with_decks == 2:
-            #             response = "Yes"
-            #         else:
-            #             response = "No"
-            #         players_with_decks_lock.release()
-            #     else:
-            #         response = "No"
-            #     send_message(client_socket, response)
 
             elif "How many cards are in player" in request and "hand" in request:
                 target_player = 0
@@ -353,7 +268,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 elif target_player == 2:
                     send_message(client_socket, str(len(player2_hand)))
                 card_lock.release()
-
 
             elif "How many cards are left in player" in request and "payoff pile?" in request:
                 target_player = 0
@@ -418,21 +332,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 card_lock.acquire()
                 send_message(client_socket, str(len(draw_pile)))
                 card_lock.release()
-
-            # elif "How many cards has player" in request and "drawn this turn?" in request:
-            #     target_player = 0
-            #     pattern = r"player (\d)"
-            #     first_match = re.search(pattern, request)
-            #     if first_match and first_match.group(1).strip().isdigit():
-            #         target_player = int(first_match.group(1).strip())
-            #     else:
-            #         raise ServerError("Invalid player ID specified in client data")
-            #
-            #     if target_player == 1:
-            #         send_message(client_socket, str(player1_draw_count))
-            #     elif target_player == 2:
-            #         send_message(client_socket, str(player2_draw_count))
-
 
             elif "What was" in request and "last move" in request:
                 target_player = 0
