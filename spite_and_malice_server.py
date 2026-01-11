@@ -217,16 +217,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     build_piles[3] = []
                     draw_pile_needs_to_be_reshuffled = True
 
-                # DEBUG
-                print("DEBUG783838")
-                print(cards_to_shuffle)
-
                 if draw_pile_needs_to_be_reshuffled:
-                    # DEBUG
-                    print("DEBUG82929")
-                    print(len(draw_pile))
                     draw_pile += cards_to_shuffle
-                    print(len(draw_pile))
                     random.shuffle(draw_pile)
 
                 card_lock.release()
@@ -344,7 +336,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                 if target_player == 1:
                     if player1_moves_queue:
-                        print("in here 1 - server")
                         last_move = player1_moves_queue.popleft()
                         send_message(client_socket, last_move[0])
                         if last_move[1] is not None:
@@ -353,7 +344,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                         send_message(client_socket, "Nothing")
                 elif target_player == 2:
                     if player2_moves_queue:
-                        print("in here 2 - server")
                         last_move = player2_moves_queue.popleft()
                         send_message(client_socket, last_move[0])
                         if last_move[1] is not None:
@@ -375,8 +365,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                         current_turn = random.randint(1, 2)
                     print(f"Setting current turn to {current_turn}", flush=True)
                 send_message(client_socket, f"Player {current_turn}")
-                # DEBUG
-                print(f"It is currently player {current_turn}'s turn", flush=True)
                 current_turn_lock.release()
 
             elif "ended their turn" in request:
@@ -401,16 +389,10 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 if target_player == 1:
                     for _ in range(0, 5, 1):
                         player1_hand.append(draw_pile.pop())
-                    print("DEBUG--------------", flush=True)
-                    print("Player 1's hand is:", flush=True)
-                    print([dbg_card.name for dbg_card in player1_hand], flush=True)
                     send_cards(client_socket, player1_hand)
                 elif target_player == 2:
                     for _ in range(0, 5, 1):
                         player2_hand.append(draw_pile.pop())
-                    print("DEBUG--------------", flush=True)
-                    print("Player 2's hand is:", flush=True)
-                    print([dbg_card.name for dbg_card in player2_hand], flush=True)
                     send_cards(client_socket, player2_hand)
 
                 card_lock.release()
@@ -455,11 +437,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     if moving_from == "hand":
                         if moving_to == "discard pile 0":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -469,11 +446,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "discard pile 1":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -483,11 +455,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "discard pile 2":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -497,11 +464,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "discard pile 3":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -511,11 +473,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 0":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -525,11 +482,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 1":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -539,11 +491,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 2":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -553,11 +500,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 3":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 1 hand:")
-                            for card in player1_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player1_hand if card.name == card_name][0]
                             player1_hand.remove(card_to_move)
@@ -659,10 +601,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     elif moving_from == "payoff pile":
                         card_lock.acquire()
                         card_to_move = payoff_pile1[-1]
-                        print("in here 7", flush=True)
-                        print("DEBUG---------------------------", flush=True)
-                        print(card_to_move.name, flush=True)
-                        print(card_name, flush=True)
                         if card_to_move.name != card_name:
                             raise ServerError("Name of top card on payoff pile did not match card name in move request")
                         payoff_pile1.pop()
@@ -700,11 +638,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                     if moving_from == "hand":
                         if moving_to == "discard pile 0":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -714,11 +647,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "discard pile 1":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -728,11 +656,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "discard pile 2":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -742,11 +665,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "discard pile 3":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -756,11 +674,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 0":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -770,11 +683,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 1":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -784,11 +692,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 2":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -798,11 +701,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                             card_lock.release()
                         elif moving_to == "build pile 3":
                             card_lock.acquire()
-                            print("DEBUG---------------------")
-                            print("Cards in player 2 hand:")
-                            for card in player2_hand:
-                                print(card.name)
-                            print(f"Card name being searched for: {card_name}")
                             # if multiple items in list take first one
                             card_to_move = [card for card in player2_hand if card.name == card_name][0]
                             player2_hand.remove(card_to_move)
@@ -905,10 +803,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                         card_lock.acquire()
                         card_to_move = payoff_pile2[-1]
                         if card_to_move.name != card_name:
-                            print("in here 6", flush=True)
-                            print("DEBUG---------------------------", flush=True)
-                            print(card_to_move.name, flush=True)
-                            print(card_name, flush=True)
                             raise ServerError("Name of top card on payoff pile did not match card name in move request")
                         payoff_pile2.pop()
                         if payoff_pile2:

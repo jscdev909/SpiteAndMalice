@@ -60,6 +60,7 @@ class NetworkHandlerErrorStatus(Enum):
 class ClientError(Exception):
     pass
 
+
 VERSION = "0.20"
 
 DARK_GREEN = (0, 100, 0)
@@ -151,8 +152,7 @@ def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
             data = tomllib.load(config_file)
         if ("name" in data and data["name"] and "server_ip" in data and
                 re.search(server_ip_pattern, data["server_ip"]) is not None and
-                "server_port" in data and 32768 < data[
-                    "server_port"] < 65535 and
+                "server_port" in data and 32768 < data["server_port"] < 65535 and
                 "sound" in data and "card_back_color" in data):
             name_entry_line.set_text(data["name"])
             server_ip_entry_line.set_text(data["server_ip"])
@@ -371,7 +371,6 @@ def perform_initial_setup(server_socket: socket.socket):
 
     # Receive player number
     send_message(server_socket, f"Player ready! Name: {player_name}")
-    print("Sent player ready message to server")  # DEBUG
     data = receive_message(server_socket)
     print(data)
 
@@ -758,11 +757,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                     if payoff_pile2_top_card is not None:
                         draggable_cards.append(payoff_pile2_top_card)
                 draggable_cards_set = True
-
-                print("DEBUG------------------")
-                print(f"Player {player_number}'s draggable cards this turn:")
-                print([dbg_card.name for dbg_card in draggable_cards])
-
 
         else:
 
@@ -2233,9 +2227,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                             paused = False
 
                         if event.ui_element == no_button:
-                            network_traffic_lock.acquire()
                             send_message(server_socket, f"Player {player_number} did not want a re-match")
-                            network_traffic_lock.release()
                             paused = False
 
                     rematch_manager.process_events(event)
@@ -2267,9 +2259,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 display_surface.blit(status_text, status_rect)
                 pygame.display.update()
 
-                network_traffic_lock.acquire()
                 send_message(server_socket,f"Player {player_number} wants a re-match")
-                network_traffic_lock.release()
 
                 rematch_manager2 = pygame_gui.UIManager(
                     (WINDOW_WIDTH, WINDOW_HEIGHT), theme_path="theme.json")
@@ -2300,10 +2290,8 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
                     rematch_manager2.update(time_delta)
 
-                    network_traffic_lock.acquire()
                     send_message(server_socket,f"Does player {opponent_player} also want a re-match?")
                     data = receive_message(server_socket)
-                    network_traffic_lock.release()
 
                     if data == "No":
                         display_surface.fill(DARK_GREEN)
@@ -2324,9 +2312,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         display_surface.blit(status_text, status_rect)
                         pygame.display.update()
 
-                        network_traffic_lock.acquire()
                         send_message(server_socket, "Set up a new game")
-                        network_traffic_lock.release()
 
                         discard_piles1 = [[], [], [], []]
                         discard_piles2 = [[], [], [], []]

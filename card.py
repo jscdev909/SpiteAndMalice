@@ -66,7 +66,6 @@ def receive_cards(sock: socket.socket, num_cards_to_receive: int) -> list[Card]:
         card_data.generate_surface()
         card_data.generate_rect()
         received_cards.append(card_data)
-        print(f"Received {received_cards[-1].name}")
 
     return received_cards
 
