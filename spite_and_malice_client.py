@@ -372,11 +372,9 @@ def perform_initial_setup(server_socket: socket.socket):
     # Receive player number
     send_message(server_socket, f"Player ready! Name: {player_name}")
     data = receive_message(server_socket)
-    print(data)
 
     if "You are player" in data and data[-1].isdigit():
         player_number = int(data[-1])
-        print(f"Player number: {player_number}")
         initial_setup_status = SetupStatus.PLAYER_ASSIGNED
     elif "Game lobby is full":
         initial_setup_status = SetupStatus.ERROR

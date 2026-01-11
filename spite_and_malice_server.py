@@ -363,7 +363,6 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                         current_turn = 2
                     elif payoff_pile1[-1].rank == payoff_pile2[-1].rank:
                         current_turn = random.randint(1, 2)
-                    print(f"Setting current turn to {current_turn}", flush=True)
                 send_message(client_socket, f"Player {current_turn}")
                 current_turn_lock.release()
 
@@ -629,10 +628,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                     if moving_from == "hand":
                         player1_moves_queue.append((f"Player 1 moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
-                        print(f"Player 1 moved {card_name} from {moving_from} to {moving_to}", flush=True)
                     else:
                         player1_moves_queue.append((f"Player 1 moved {card_name} from {moving_from} to {moving_to}", None))
-                        print(f"Player 1 moved {card_name} from {moving_from} to {moving_to}", flush=True)
 
                 elif target_player == 2:
                     if moving_from == "hand":
@@ -828,10 +825,8 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
 
                     if moving_from == "hand":
                         player2_moves_queue.append((f"Player 2 moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
-                        print(f"Player 2 moved {card_name} from {moving_from} to {moving_to}", flush=True)
                     else:
                         player2_moves_queue.append((f"Player 2 moved {card_name} from {moving_from} to {moving_to}", None))
-                        print(f"Player 2 moved {card_name} from {moving_from} to {moving_to}", flush=True)
 
 
             else:
