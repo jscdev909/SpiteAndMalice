@@ -15,7 +15,7 @@ been emptied, the winner is determined by who has the lowest amount of cards lef
 
 - Play with two players over the internet or on your local network
 - Server port, number of playing card decks and number of payoff pile cards configurable on the server
-- Auto-reshuffling when a queen is placed on a build pile
+- Auto-reshuffling when a queen (or a wild king substituting for a queen) is placed on a build pile
 - Automatic drawing of 5 cards when it's the players turn and they have no cards in their hand
 - Stack value displayed below build piles during gameplay in case a king is on the top of the pile
 - Multiple card back colors configurable on the client
