@@ -3,7 +3,7 @@
 # Rules
 
 The game of Spite and Malice, also known as Skip-Bo, is a two-player card game usually played with two decks of standard playing cards where the object of the game is to get rid of all the cards in your payoff pile 
-before the other player. To do this, players use four shared build piles to count from 1-12 (1-10, Jack, Queen), using cards from their hand, personal discard piles and payoff pile. At the beginning of their turn, 
+before the other player. To do this, players use four shared build piles to count from 1-12 (1-10, Jack, Queen), using cards from their hand, personal discard piles and payoff pile. The top card of the payoff pile will determine who goes first (highest rank). At the beginning of their turn, 
 if they have no cards, a player draws 5 cards from the draw pile to their hand and proceeds to stack cards in the build piles starting with aces and working their way up to queens. When a queen is placed on the 
 build pile, that pile is reshuffled back into the draw pile. A player ends their turn by placing a card from their hand onto one of their four personal discard piles. Kings are wild cards and can substitute for 
 any other ranked card. Suits do not matter in this game. Jokers are also not used. The first player to have no cards left in their payoff pile wins. If the number of draw pile cards run out before both payoff piles have
