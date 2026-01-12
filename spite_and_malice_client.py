@@ -61,7 +61,7 @@ class ClientError(Exception):
     pass
 
 
-VERSION = "0.20"
+VERSION = "1.0.0"
 
 DARK_GREEN = (0, 100, 0)
 WHITE = (255, 255, 255)

@@ -11,7 +11,7 @@ from socket_utils import receive_message, send_message
 from path_utils import get_path
 from pathlib import Path
 
-VERSION = "0.20"
+VERSION = "1.0.0"
 HOST = "0.0.0.0"
 
 connection_count = 0
