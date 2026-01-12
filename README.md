@@ -108,7 +108,7 @@ If you have any questions or concerns with the game functionality, don't be afra
 
 - Playing cards (by Byron Knoll, open source/public domain license): https://opengameart.org/content/playing-cards-vector-png
 - Colored card backs (by jeffshee, [Creative Commons 3.0 license](https://creativecommons.org/licenses/by/3.0/)): https://opengameart.org/content/colorful-poker-card-back
-- Icon used for MacOS/Windows executables (by Everaldo, [LGPL Open Source license](https://www.gnu.org/licenses/lgpl-3.0.html)): https://www.iconarchive.com/show/crystal-clear-icons-by-everaldo/App-Card-game-icon.html
+- Icon used for Windows/macOS release executables (by Everaldo, [LGPL Open Source license](https://www.gnu.org/licenses/lgpl-3.0.html)): https://www.iconarchive.com/show/crystal-clear-icons-by-everaldo/App-Card-game-icon.html
 
 # Special Thanks
 - [Stack Overflow](stackoverflow.com) and its many contributors, for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
