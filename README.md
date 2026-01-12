@@ -54,7 +54,7 @@ The server component will require either a local host or dedicated server with a
 and 65535. This port will then be passed to the server script/executable on first run and stored in a config file. If running on a cloud host, a visible IPv4 address for the server will be required to play across 
 the internet.
 
-After setting up a python virtual environment and installing pygame-ce (or simply running the single server executable from the releases page) and running the server script/executable, you will be presented with 
+After setting up a python virtual environment, installing pygame-ce and running the server script (or simply running the all-in-one server executable from the releases page), you will be presented with 
 the following prompt:
 
 <img width="995" height="21" alt="image" src="https://github.com/user-attachments/assets/0a324a69-b67d-4236-908c-dc529e1bb2c2" />
@@ -65,33 +65,30 @@ You will then see the following:
 
 <img width="638" height="24" alt="image" src="https://github.com/user-attachments/assets/e3db83c9-70a1-4ed4-be9a-982c158d6b63" />
 
-This is the number of standard playing card decks the game will use for each game. Standard games of Spite and Malice use 2 decks, but I prefer using 4. Enter a number between 2-6 and press Enter again.
+This is the number of standard playing card decks the game will use for each game. Standard games of Spite and Malice use 2 decks, but use 4 or more if you don't want to run out of draw pile cards during a game. Enter a number between 2-6 and press Enter again.
 
 You will then see yet another user prompt:
 
 <img width="620" height="18" alt="image" src="https://github.com/user-attachments/assets/ee74a8c6-ad6e-4ad7-bb2e-a8f2a37462ba" />
 
-This is the number of cards to use for each payoff pile. Standard games of Spite and Malice use either 20 or 30, but you can enter any value between and including 20 and 30. Press Enter once again to complete
-the initial configuration.
+This is the number of cards to use for each payoff pile. Standard games of Spite and Malice use either 20 or 30, but you can enter any value between and including 20 and 30. Enter a number and press Enter once again to complete the initial configuration.
 
-You should then see a notification that a configuration file was written to a local directory path and that the server has begun listening for traffic. Configuration files are written by the server to the
-following locations depending on the platform of the host:
+You should then see a notification that a configuration file (config.toml) was written to a local directory path and that the server has begun listening for traffic. Configuration files are written by the server to the following locations depending on the platform of the host:
 
 **Windows**: ```C:/ProgramData/jscdev909/spite_and_malice_server```
 </br>**MacOS/Linux**: ```$HOME/.config/spite_and_malice_server```
 
-These files are fully editable but if any wrong information is read from them while restarting the server you will receive the setup prompts again to re-write the file with valid information.
+These files are fully editable but if any wrong information is read from them during startup of the server you will receive the setup prompts again to re-write the file with valid information.
 
 Initial server configuration is now complete. The entered information will be remembered for all subsequent runs of the server. To get the initial user setup prompts again, simply delete the config file.
 
-On the client side, after setting up a python virtual environment and installing pygame-ce and pygame-gui (or simply starting the single client executable from the releases page), you will be presented
-with the following empty configuration screen:
+On the client side, after setting up a python virtual environment, installing pygame-ce and pygame-gui with pip, downloading the repository dependencies and starting the client script (or simply starting the all-in-one client executable from the releases page), you will be presented with the following empty configuration screen:
 
 <img width="927" height="982" alt="image" src="https://github.com/user-attachments/assets/254cd349-97b9-4030-a3c7-7f96817e4869" />
 
 Player name can be any name up to 8 characters in length. The server IP is the visible IPv4 address of the server (or 127.0.0.1 if hosting locally) and the port is the ephemeral port configured on the server 
 earlier. The game options control the color of the card backs seen in the GUI and if any shuffling or dealing card sounds should be played during the game. These can be adjusted as necessary. After pressing
-OK all of these settings will be stored in a config.toml file at the following path depending on the host platform:
+OK, all of these settings will be stored in a config.toml file at the following path depending on the host platform:
 
 **Windows**: ```C:/ProgramData/jscdev909/spite_and_malice_client```
 </br>**MacOS/Linux**: ```$HOME/.config/spite_and_malice_client```
@@ -99,7 +96,7 @@ OK all of these settings will be stored in a config.toml file at the following p
 The configuration file is automatically re-written each time you press OK in the client. To get a blank client setup screen again, simply delete the configuration file.
 
 Press OK to connect to another client to play the game. You should see connection status notifications on the client and the server should start outputting status messages for the players as well. 
-At this point both running clients should be able to connect to each other and play the game. 
+At this point two running and properly-configured clients should be able to connect to each other and play the game. 
 
 Enjoy!
 
@@ -112,7 +109,7 @@ If you have any questions or concerns with the game functionality, don't be afra
 - Icon used for MacOS/Windows executables (by Everaldo, [LGPL Open Source license](https://www.gnu.org/licenses/lgpl-3.0.html)): https://www.iconarchive.com/show/crystal-clear-icons-by-everaldo/App-Card-game-icon.html
 
 # Special Thanks
-- [Stack Overflow](stackoverflow.com), for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions in path_utils.py and socket_utils.py, respectively
+- [Stack Overflow](stackoverflow.com), for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
 - My mother, for playing Skip-Bo with me which inspired this whole project
 
 
