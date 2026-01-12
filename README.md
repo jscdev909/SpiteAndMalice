@@ -48,7 +48,7 @@ The client script requires the following files/directories and modules to run:
 - assets/shuffle_cards.wav
 - theme.json
 
-If you would prefer to run single executables of the client and server with all dependencies included, check out the releases page!
+**If you would prefer to run single executables of the client and server with all dependencies included, check out the releases page [here](https://github.com/jscdev909/SpiteAndMalice/releases)!**
 
 Both players will require a mouse to move cards on the client while playing the game.
 
