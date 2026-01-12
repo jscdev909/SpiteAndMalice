@@ -28,14 +28,14 @@ been emptied, the winner is determined by who has the lowest amount of cards lef
 This repository contains two main scripts, the server script (spite_and_malice_server.py) and the client script (spite_and_malice_client.py). The server script is a command line application while the client script
 contains the main game GUI that each player will require to play the game. 
 
-The server script requires the following files and modules to run:
+The server script requires the following files/directories and modules to run:
 - pygame-ce (```pip install pygame-ce```)
 - card.py
 - socket_utils.py
 - path_utils.py
 - assets/card_faces directory
 
-The client script requires the following files and modules to run:
+The client script requires the following files/directories and modules to run:
 - pygame-ce (```pip install pygame-ce```)
 - pygame-gui (```pip install pygame-gui```)
 - card.py
