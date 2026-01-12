@@ -44,6 +44,7 @@ The client script requires the following files and modules to run:
 - assets/card_backs directory
 - assets/dealing_cards.wav
 - assets/shuffle_cards.wav
+- theme.json
 
 If you would prefer to run single executables of the client and server with all dependencies included, check out the releases page!
 
