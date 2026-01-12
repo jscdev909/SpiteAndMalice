@@ -56,7 +56,7 @@ The server component will require either a local host or dedicated server with a
 and 65535. This port will then be passed to the server script/executable on first run and stored in a config file. If running on a cloud host, a visible IPv4 address for the server will be required to play across 
 the internet.
 
-After setting up a python virtual environment, installing pygame-ce and running the server script (or simply running the all-in-one server executable from the releases page), you will be presented with 
+After setting up a python virtual environment, installing the dependencies listed above and running the server script (or simply running the all-in-one server executable from the releases page), you will be presented with 
 the following prompt:
 
 <img width="995" height="21" alt="image" src="https://github.com/user-attachments/assets/0a324a69-b67d-4236-908c-dc529e1bb2c2" />
@@ -84,7 +84,7 @@ These files are fully editable but if any wrong information is read from them du
 
 Initial server configuration is now complete. The entered information will be remembered for all subsequent runs of the server. To get the initial user setup prompts again, simply delete the config file.
 
-On the client side, after setting up a python virtual environment, installing pygame-ce and pygame-gui with pip, downloading the repository dependencies and starting the client script (or simply starting the all-in-one client executable from the releases page), you will be presented with the following empty configuration screen:
+On the client side, after setting up a python virtual environment, installing the dependencies listed above and starting the client script (or simply starting the all-in-one client executable from the releases page), you will be presented with the following empty configuration screen:
 
 <img width="927" height="982" alt="image" src="https://github.com/user-attachments/assets/254cd349-97b9-4030-a3c7-7f96817e4869" />
 
