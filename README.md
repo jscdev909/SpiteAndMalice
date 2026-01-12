@@ -50,7 +50,7 @@ If you would prefer to run single executables of the client and server with all 
 
 Both players will require a mouse to move cards on the client while playing the game.
 
-The server component will require either a local host or cloud host (such as DigitalOcean) with a firewall configured to allow inbound IPv4 traffic on an ephemeral port between 32768 
+The server component will require either a local host or dedicated server with a firewall configured to allow inbound IPv4 traffic on an ephemeral port between 32768 
 and 65535. This port will then be passed to the server script/executable on first run and stored in a config file. If running on a cloud host, a visible IPv4 address for the server will be required to play across 
 the internet.
 
