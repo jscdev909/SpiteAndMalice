@@ -82,9 +82,9 @@ def send_cards(sock: socket.socket, cards_to_send: list[Card]) -> None:
         sock.sendall(message_length + pickled_card)
 
 
-def create_deck(directory: str) -> list[Card]:
+def create_deck(directory: str, num_decks: int) -> list[Card]:
     cards = []
-    for _ in range(0, 4, 1):
+    for _ in range(0, num_decks, 1):
         for filename in os.listdir(directory):
             image_surface = pygame.image.load(os.path.join(directory, filename))
             image_surface = pygame.transform.scale(image_surface, (100, 150))
@@ -94,12 +94,12 @@ def create_deck(directory: str) -> list[Card]:
     return cards
 
 
-def deal(all_cards: list[Card]) -> tuple[list[Card], list[Card], list[Card]]:
+def deal(all_cards: list[Card], payoff_pile_size: int) -> tuple[list[Card], list[Card], list[Card]]:
     pile1 = []
     pile2 = []
 
-    for index in range(0, 20, 1):
-        if index == 19:
+    for index in range(0, payoff_pile_size, 1):
+        if index == payoff_pile_size - 1:
             dealt_card = all_cards.pop()
             dealt_card.position = CardPosition.FACE_UP
             dealt_card.order = index

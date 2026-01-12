@@ -43,7 +43,7 @@ rematch_setup_lock = threading.Lock()
 class ServerError(Exception):
     pass
 
-def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
+def handle_client(client_socket: socket.socket, client_address: tuple[str, int], num_decks: int, payoff_pile_size: int) -> None:
     global connection_count, current_turn, deck, payoff_pile1, payoff_pile2, draw_pile
     global player1_hand, player2_hand, player1_draw_count, player2_draw_count
     global player1_name, player2_name, player1_rematch, player2_rematch, rematch_setup_complete
@@ -230,9 +230,9 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
                 if not deck and not payoff_pile1 and not payoff_pile2 and not draw_pile:
                     # Got the lock, create the deck, payoff piles and draw pile
                     print(f"[*] Creating the deck (player {player_number} thread)...", flush=True)
-                    deck = create_deck(get_path("assets/card_faces"))
+                    full_deck = create_deck(get_path("assets/card_faces"), num_decks)
                     print(f"[*] Creating the payoff piles and draw pile (player {player_number} thread)...", flush=True)
-                    payoff_pile1, payoff_pile2, draw_pile = deal(deck)
+                    payoff_pile1, payoff_pile2, draw_pile = deal(full_deck, payoff_pile_size)
                 else:
                     print(f"[*] Status update from player {player_number} thread: other thread already created decks and piles", flush=True)
 
@@ -870,7 +870,7 @@ def handle_client(client_socket: socket.socket, client_address: tuple[str, int])
         current_turn_lock.release()
         print(f"[-] Connection with {client_address[0]}:{client_address[1]} closed.", flush=True)
 
-def run_server(valid_port: int) -> None:
+def run_server(valid_port: int, num_decks: int, payoff_pile_size: int) -> None:
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -884,7 +884,7 @@ def run_server(valid_port: int) -> None:
         while True:
             try:
                 client_socket, addr = server.accept()
-                client_handler = threading.Thread(target=handle_client, args=(client_socket, addr))
+                client_handler = threading.Thread(target=handle_client, args=(client_socket, addr, num_decks, payoff_pile_size,))
                 client_handler.start()
             except socket.timeout:
                 pass
@@ -914,45 +914,82 @@ def main():
         config_file_path = Path()
 
     port = 0
+    decks = 0
+    payoff_pile_size = 0
 
     try:
         if config_file_path.exists():
             print(f"Using config file found at {config_file_path}", flush=True)
             with open(config_file_path, "rb") as config_file:
                 data = tomllib.load(config_file)
-            if "port" in data and 32768 <= data["port"] <= 65535:
+            if ("port" in data and 32768 <= data["port"] <= 65535 and "decks" in data and 2 <= data["decks"] <= 6
+                    and "payoff_pile_size" in data and 20 <= data["payoff_pile_size"] <= 30):
                 port = data["port"]
+                decks = data["decks"]
+                payoff_pile_size = data["payoff_pile_size"]
             else:
-                print("Config file contains incorrect port number, rewriting config file with new input")
-                receiving_input = True
-                while receiving_input:
+                print("Config file contains incorrect data, rewriting config file with new input")
+                receiving_port_input = True
+                while receiving_port_input:
                     user_input = input("Please enter a port number (32768-65535) for the server to listen to: ")
                     if user_input.isdigit() and 32768 <= int(user_input) <= 65535:
                         port = int(user_input)
-                        receiving_input = False
+                        receiving_port_input = False
+
+                receiving_decks_input = True
+                while receiving_decks_input:
+                    user_input = input("How many playing card decks should the game use? (2-6): ")
+                    if user_input.isdigit() and 2 <= int(user_input) <= 6:
+                        decks = int(user_input)
+                        receiving_decks_input = False
+
+                receiving_payoff_pile_size_input = True
+                while receiving_payoff_pile_size_input:
+                    user_input = input("How many cards should be in each payoff pile? (20-30): ")
+                    if user_input.isdigit() and 20 <= int(user_input) <= 30:
+                        payoff_pile_size = int(user_input)
+                        receiving_payoff_pile_size_input = False
 
                 with open(config_file_path, "w") as config_file:
                     config_file.write(f"port = {port}\n")
+                    config_file.write(f"decks = {decks}\n")
+                    config_file.write(f"payoff_pile_size = {payoff_pile_size}\n")
 
                 print(f"Re-wrote config file to {str(config_file_path)}",
                       flush=True)
         else:
-            receiving_input = True
-            while receiving_input:
+            receiving_port_input = True
+            while receiving_port_input:
                 user_input = input("Please enter a port number (32768-65535) for the server to listen to: ")
-                if user_input.isdigit():
-                    if 32768 <= int(user_input) <= 65535:
-                        port = int(user_input)
-                        receiving_input = False
+                if user_input.isdigit() and 32768 <= int(user_input) <= 65535:
+                    port = int(user_input)
+                    receiving_port_input = False
+
+            receiving_decks_input = True
+            while receiving_decks_input:
+                user_input = input("How many playing card decks should the game use? (2-6): ")
+                if user_input.isdigit() and 2 <= int(user_input) <= 6:
+                    decks = int(user_input)
+                    receiving_decks_input = False
+
+            receiving_payoff_pile_size_input = True
+            while receiving_payoff_pile_size_input:
+                user_input = input(
+                    "How many cards should be in each payoff pile? (20-30): ")
+                if user_input.isdigit() and 20 <= int(user_input) <= 30:
+                    payoff_pile_size = int(user_input)
+                    receiving_payoff_pile_size_input = False
 
             if not unknown_os:
                 config_file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(config_file_path, "w") as config_file:
                     config_file.write(f"port = {port}\n")
+                    config_file.write(f"decks = {decks}\n")
+                    config_file.write(f"payoff_pile_size = {payoff_pile_size}\n")
 
                 print(f"Wrote new config file to {str(config_file_path)}", flush=True)
 
-        run_server(port)
+        run_server(port, decks, payoff_pile_size)
 
     except KeyboardInterrupt:
         print("\nExiting...", flush=True)
