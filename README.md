@@ -109,7 +109,7 @@ If you have any questions or concerns with the game functionality, don't be afra
 - Icon used for MacOS/Windows executables (by Everaldo, [LGPL Open Source license](https://www.gnu.org/licenses/lgpl-3.0.html)): https://www.iconarchive.com/show/crystal-clear-icons-by-everaldo/App-Card-game-icon.html
 
 # Special Thanks
-- [Stack Overflow](stackoverflow.com), for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
+- [Stack Overflow](stackoverflow.com) and its many contributors, for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
 - My mother, for playing Skip-Bo with me which inspired this whole project
 
 
