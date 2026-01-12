@@ -95,6 +95,7 @@ opponents_hand_size = 0
 
 game_result_text = None
 
+# For syncing network traffic between main thread and network thread
 network_traffic_lock = threading.Lock()
 
 sound_option = "On"
