@@ -1,6 +1,6 @@
 <img width="927" height="982" alt="image" src="https://github.com/user-attachments/assets/f4f628b0-0909-4468-bfd0-711a5c9628ca" />
 
-The game of Spite and Malice, written in Python utilizing the Pygame engine!
+</br>The game of Spite and Malice, written in Python utilizing the Pygame engine!
 
 # Rules
 
