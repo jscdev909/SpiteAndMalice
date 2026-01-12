@@ -30,6 +30,7 @@ contains the main game GUI that each player will require to play the game.
 
 The server script requires the following files/directories and modules to run:
 - pygame-ce (```pip install pygame-ce```)
+- numpy (```pip install numpy```)
 - card.py
 - socket_utils.py
 - path_utils.py
@@ -38,6 +39,7 @@ The server script requires the following files/directories and modules to run:
 The client script requires the following files/directories and modules to run:
 - pygame-ce (```pip install pygame-ce```)
 - pygame-gui (```pip install pygame-gui```)
+- numpy (```pip install numpy```)
 - card.py
 - socket_utils.py
 - path_utils.py
