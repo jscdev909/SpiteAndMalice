@@ -5,6 +5,7 @@ import random
 import tomllib
 import os
 import sys
+import platform
 from collections import deque
 from card import CardPosition, send_cards, deal, create_deck
 from socket_utils import receive_message, send_message
@@ -904,9 +905,9 @@ def run_server(valid_port: int) -> None:
 def main():
 
     unknown_os = False
-    if os.name == "nt":
+    if platform.system() == "Windows":
         config_file_path = Path("C:/ProgramData") / "jscdev909" / "spite_and_malice_server" / "config.toml"
-    elif os.name == "posix":
+    elif platform.system() == "Darwin" or platform.system() == "Linux":
         config_file_path = Path(os.getenv("HOME")) / ".config" / "spite_and_malice_server" / "config.toml"
     else:
         unknown_os = True

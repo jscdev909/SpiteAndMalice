@@ -4,6 +4,7 @@ import threading
 import tomllib
 import os
 import sys
+import platform
 import pygame
 import pygame_gui
 from card import CardPosition, receive_cards
@@ -119,9 +120,9 @@ def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
 
     # Check for existing config file
     unknown_os = False
-    if os.name == "nt":
+    if platform.system() == "Windows":
         config_file_path = Path("C:/ProgramData") / "jscdev909" / "spite_and_malice_client" / "config.toml"
-    elif os.name == "posix":
+    elif platform.system() == "Darwin" or platform.system() == "Linux":
         config_file_path = Path(os.getenv("HOME")) / ".config" / "spite_and_malice_client" / "config.toml"
     else:
         unknown_os = True
