@@ -2,6 +2,8 @@
 
 </br>The game of Spite and Malice, written in Python utilizing the Pygame engine!
 
+*IMPORTANT*: Everything in this repository EXCEPT for the contents of assets/card_backs and assets/card_faces, including all code, is hereby released under the MIT license. The contents of assets/card_backs and assets/card_faces have been previously released under different licenses, detailed in the "Asset Credits" section below.
+
 # Rules
 
 Spite and Malice, also known as Skip-Bo, is a two-player card game usually played with two decks of standard playing cards where the object of the game is to get rid of all the cards in your payoff pile 
@@ -52,7 +54,7 @@ The client script requires the following files/directories and modules to run:
 
 Both players will require a mouse to move cards on the client while playing the game.
 
-The server component will require either a local host or dedicated server with a firewall configured to allow inbound IPv4 traffic on an ephemeral port between 32768 
+The server component will require either a local host or dedicated server (either on a local network or in the cloud) with a firewall configured to allow inbound IPv4 traffic on an ephemeral port between 32768 
 and 65535. This port will then be passed to the server script/executable on first run and stored in a config file. If running on a cloud host, a visible IPv4 address for the server will be required to play across 
 the internet.
 
