@@ -62,7 +62,7 @@ class ClientError(Exception):
     pass
 
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 DARK_GREEN = (0, 100, 0)
 WHITE = (255, 255, 255)
@@ -699,15 +699,13 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
         if turn_switch or first_turn:
 
+            pygame.time.wait(250)
             network_traffic_lock.acquire()
             send_message(server_socket, "Whose turn is it?")
             data = receive_message(server_socket)
             network_traffic_lock.release()
 
-            if data:
-                if data[-1].isdigit() and int(data[-1]) != current_turn:
-                    draggable_cards_set = False
-            else:
+            if not data or not data[-1].isdigit():
                 raise ClientError("Could not receive current turn number from server")
 
             if data == "Player 1":
@@ -715,22 +713,20 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             elif data == "Player 2":
                 current_turn = 2
 
+            draggable_cards_set = False
             turn_switch = False
 
-        if not current_hand and current_turn == player_number:
-
-            network_traffic_lock.acquire()
-            send_message(server_socket,f"Player {player_number} draws 5 cards")
-            current_hand = receive_cards(server_socket, 5)
-            network_traffic_lock.release()
-
-            if sound_option == "On":
-                draw_cards_sound_effect = pygame.mixer.Sound(get_path("assets/dealing_cards.wav"))
-                draw_cards_sound_effect.play()
-
-            draggable_cards_set = False
-
         if current_turn == player_number:
+            if not current_hand:
+                network_traffic_lock.acquire()
+                send_message(server_socket,f"Player {player_number} draws 5 cards")
+                current_hand = receive_cards(server_socket, 5)
+                network_traffic_lock.release()
+
+                if sound_option == "On":
+                    draw_cards_sound_effect = pygame.mixer.Sound(get_path("assets/dealing_cards.wav"))
+                    draw_cards_sound_effect.play()
+
             if not draggable_cards_set:
                 draggable_cards = []
                 draggable_cards += current_hand
@@ -2311,8 +2307,6 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         status_rect.centery = WINDOW_HEIGHT // 2
                         display_surface.blit(status_text, status_rect)
                         pygame.display.update()
-
-                        send_message(server_socket, "Set up a new game")
 
                         discard_piles1 = [[], [], [], []]
                         discard_piles2 = [[], [], [], []]
