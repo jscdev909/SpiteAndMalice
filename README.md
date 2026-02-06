@@ -2,6 +2,8 @@
 
 </br>The game of Spite and Malice, written in Python utilizing the Pygame engine!
 
+*IMPORTANT*: Everything in this repository EXCEPT for the contents of assets/card_backs and assets/card_faces, including all code, is hereby released under the MIT license. The contents of assets/card_backs and assets/card_faces have been previously released under different licenses, detailed in the "Asset Credits" section below.
+
 # Rules
 
 Spite and Malice, also known as Skip-Bo, is a two-player card game usually played with two decks of standard playing cards where the object of the game is to get rid of all the cards in your payoff pile 
