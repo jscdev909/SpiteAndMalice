@@ -116,7 +116,7 @@ If you have any questions or concerns with the game functionality, don't be afra
 
 ## Special Thanks
 - [Stack Overflow](stackoverflow.com) and its many contributors, for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
-- [DigitalOcean](https://www.digitalocean.com/), for hosting the cloud server I used to test this project with
+- [DigitalOcean](https://www.digitalocean.com/), for hosting the cloud agent I used to test the server component of this project with
 - My mother, for playing Skip-Bo with me which inspired this whole project
 - My friend Anthony, for play-testing the development versions of this game with me, helping to squash bugs and giving me feature suggestions
 
