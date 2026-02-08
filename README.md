@@ -1,10 +1,12 @@
+# Spite And Malice
+
 <img width="927" height="982" alt="image" src="https://github.com/user-attachments/assets/f4f628b0-0909-4468-bfd0-711a5c9628ca" />
 
 </br>The game of Spite and Malice, written in Python utilizing the Pygame engine!
 
 *IMPORTANT*: Everything in this repository EXCEPT for the contents of assets/card_backs and assets/card_faces, including all code, is hereby released under the MIT license. The contents of assets/card_backs and assets/card_faces have been previously released under different licenses, detailed in the "Asset Credits" section below.
 
-# Rules
+## Rules
 
 Spite and Malice, also known as Skip-Bo, is a two-player card game usually played with two decks of standard playing cards where the object of the game is to get rid of all the cards in your payoff pile 
 before the other player. To do this, players use four shared build piles to count from 1-12 (1-10, Jack, Queen), using cards from their hand, personal discard piles and payoff pile. The top card of the payoff pile will determine who goes first (highest rank). At the beginning of their turn, 
@@ -13,7 +15,7 @@ build pile, that pile is reshuffled back into the draw pile. A player ends their
 any other ranked card. Suits do not matter in this game. Jokers are also not used. The first player to have no cards left in their payoff pile wins. If the number of draw pile cards run out before both payoff piles have
 been emptied, the winner is determined by who has the lowest amount of cards left on their payoff pile. If both payoff piles have the same number of cards left, the game is a stalemate.
 
-# Features
+## Features
 
 - Play with two players over the internet or on your local network
 - Server port, number of playing card decks and number of payoff pile cards configurable on the server
@@ -25,7 +27,7 @@ been emptied, the winner is determined by who has the lowest amount of cards lef
 - Shuffling and drawing sounds in-game (You can also turn these off in the client)
 - Ability to challenge your opponent to a re-match after the conclusion of a game (both players must select yes to proceed)
 
-# Getting Started (Setup and Configuration)
+## Getting Started (Setup and Configuration)
 
 This repository contains two main scripts, the server script (spite_and_malice_server.py) and the client script (spite_and_malice_client.py). The server script is a command line application while the client script
 contains the main game GUI that each player will require to play the game. 
@@ -106,13 +108,13 @@ Enjoy!
 
 If you have any questions or concerns with the game functionality, don't be afraid to open an issue and let me know!
 
-# Asset Credits
+## Asset Credits
 
 - Playing cards (by Byron Knoll, open source/public domain license): https://opengameart.org/content/playing-cards-vector-png
 - Colored card backs (by jeffshee, [Creative Commons 3.0 license](https://creativecommons.org/licenses/by/3.0/)): https://opengameart.org/content/colorful-poker-card-back
 - Icon used for Windows/macOS release executables (by Everaldo, [LGPL Open Source license](https://www.gnu.org/licenses/lgpl-3.0.html)): https://www.iconarchive.com/show/crystal-clear-icons-by-everaldo/App-Card-game-icon.html
 
-# Special Thanks
+## Special Thanks
 - [Stack Overflow](stackoverflow.com) and its many contributors, for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
 - [DigitalOcean](https://www.digitalocean.com/), for hosting the cloud server I used to test this project with
 - My mother, for playing Skip-Bo with me which inspired this whole project
