@@ -9,29 +9,14 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 
-strategy:
-  matrix:
-    Python38:
-      python.version: '3.8'
-    Python39:
-      python.version: '3.9'
-    Python310:
-      python.version: '3.10'
-    Python311:
-      python.version: '3.11'
-
-steps:
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '$(python.version)'
-  displayName: 'Use Python $(python.version)'
-
-- script: |
-    python -m pip install --upgrade pip
-    pip install numpy pygame-ce pygame-gui
-  displayName: 'Install dependencies'
-
-#- script: |
-#    pip install pytest pytest-azurepipelines
-#    pytest
-#  displayName: 'pytest'
+stages:
+  - stage: deploy
+    jobs:
+      - deployment: myDeploymentJob        # instead of job keyword, use deployment keyword
+        displayName: deploy spite and malice
+        environment: mytestenvironment
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo my first deployment
