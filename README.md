@@ -2,7 +2,7 @@
 
 <img width="927" height="982" alt="image" src="https://github.com/user-attachments/assets/f4f628b0-0909-4468-bfd0-711a5c9628ca" />
 
-</br>The game of Spite and Malice, written in Python utilizing the Pygame engine!
+</br>The game of Spite and Malice, written in Python using the Pygame engine!
 
 *IMPORTANT*: Everything in this repository EXCEPT for the contents of assets/card_backs and assets/card_faces, including all code, is hereby released under the MIT license. The contents of assets/card_backs and assets/card_faces have been previously released under different licenses, detailed in the "Asset Credits" section below.
 
