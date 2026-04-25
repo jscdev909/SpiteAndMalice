@@ -9,7 +9,7 @@
 ## Rules
 
 Spite and Malice, also known as Skip-Bo, is a two-player card game usually played with two decks of standard playing cards where the object of the game is to get rid of all the cards in your payoff pile 
-before the other player. To do this, players use four shared build piles to count from 1-12 (1-10, Jack, Queen), using cards from their hand, personal discard piles and payoff pile. The top card of the payoff pile will determine who goes first (highest rank). At the beginning of their turn, 
+before the other player. To do this, players use four shared build piles to count from 1-12 (A, 2-10, Jack, Queen), using cards from their hand, personal discard piles and payoff pile. The top card of the payoff pile will determine who goes first (highest rank). At the beginning of their turn, 
 if they have no cards, a player draws 5 cards from the draw pile to their hand and proceeds to stack cards in the build piles starting with aces and working their way up to queens. When a queen is placed on the 
 build pile, that pile is reshuffled back into the draw pile. A player ends their turn by placing a card from their hand onto one of their four personal discard piles. Kings are wild cards and can substitute for 
 any other ranked card. Suits do not matter in this game. Jokers are also not used. The first player to have no cards left in their payoff pile wins. If the number of draw pile cards run out before both payoff piles have
@@ -29,10 +29,12 @@ been emptied, the winner is determined by who has the lowest amount of cards lef
 
 ## Getting Started (Setup and Configuration)
 
-This repository contains two main scripts, the server script (spite_and_malice_server.py) and the client script (spite_and_malice_client.py). The server script is a command line application while the client script
-contains the main game GUI that each player will require to play the game. 
+**If you would prefer to run single executables of the client and server with all dependencies included, check out the releases page [here](https://github.com/jscdev909/SpiteAndMalice/releases)!**
 
-The server script requires the following files/directories and modules to run:
+This repository contains two main scripts, the server script (spite_and_malice_server.py) and the client script (spite_and_malice_client.py). The server script is a command line application while the client script
+contains the main game GUI that each player will require to play the game. If you downloaded executables from the link above, you will instead have two executables, one for spite_and_malice_server and another for spite_and_malice_client.
+
+The server script requires the following files/directories and modules to run (you can skip this if you downloaded an executable above):
 - pygame-ce (```pip install pygame-ce```)
 - numpy (```pip install numpy```)
 - card.py
@@ -40,7 +42,7 @@ The server script requires the following files/directories and modules to run:
 - path_utils.py
 - assets/card_faces directory
 
-The client script requires the following files/directories and modules to run:
+The client script requires the following files/directories and modules to run (again, you can skip this if you downloaded an executable above):
 - pygame-ce (```pip install pygame-ce```)
 - pygame-gui (```pip install pygame-gui```)
 - numpy (```pip install numpy```)
@@ -52,13 +54,12 @@ The client script requires the following files/directories and modules to run:
 - assets/shuffle_cards.wav
 - theme.json
 
-**If you would prefer to run single executables of the client and server with all dependencies included, check out the releases page [here](https://github.com/jscdev909/SpiteAndMalice/releases)!**
+The typical configuration to run this game is one server component running and serving two client instances. Both players will also require a mouse to move cards on their instances of the client while playing the game.
 
-Both players will require a mouse to move cards on the client while playing the game.
+The server component will require either a local host or dedicated/shared server (either on a local network or in the cloud) with a firewall configured to allow inbound IPv4 traffic on an ephemeral port between 32768 
+and 65535. The chosen port is passed to the server script/executable on first run and stored in a config file. If setting up for multiplayer gameplay over the internet (or just on a local network), the host running the server component must have an IPv4 address that is visible to both players.
 
-The server component will require either a local host or dedicated server (either on a local network or in the cloud) with a firewall configured to allow inbound IPv4 traffic on an ephemeral port between 32768 
-and 65535. This port will then be passed to the server script/executable on first run and stored in a config file. If running on a cloud host, a visible IPv4 address for the server will be required to play across 
-the internet.
+### Configuring the server script/executable
 
 After setting up a python virtual environment, installing the dependencies listed above and running the server script (or simply running the all-in-one server executable from the releases page), you will be presented with 
 the following prompt:
@@ -88,7 +89,9 @@ These files are fully editable but if any wrong information is read from them du
 
 Initial server configuration is now complete. The entered information will be remembered for all subsequent runs of the server. To get the initial user setup prompts again, simply delete the config file.
 
-On the client side, after setting up a python virtual environment, installing the dependencies listed above and starting the client script (or simply starting the all-in-one client executable from the releases page), you will be presented with the following empty configuration screen:
+### Setting up the client script/executable
+
+For the client, after setting up a python virtual environment, installing the dependencies listed above and starting the client script (or simply starting the all-in-one client executable from the releases page), you will be presented with the following empty configuration screen:
 
 <img width="927" height="982" alt="image" src="https://github.com/user-attachments/assets/254cd349-97b9-4030-a3c7-7f96817e4869" />
 
@@ -117,7 +120,7 @@ If you have any questions or concerns with the game functionality, don't be afra
 ## Special Thanks
 - [Stack Overflow](https://stackoverflow.com) and its many contributors, for tons of answers of relevant Python questions and for providing the source code for the get_path and recv_all helper functions used in path_utils.py and socket_utils.py, respectively
 - [DigitalOcean](https://www.digitalocean.com/), for hosting the cloud agent I used to test the server component of this project with
-- My mother, for playing Skip-Bo with me which inspired this whole project
+- My Mom, for playing Skip-Bo with me which inspired this whole project
 - My friend Anthony, for play-testing the development versions of this game with me, helping to squash bugs and giving me feature suggestions
 
 
