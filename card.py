@@ -1,11 +1,12 @@
-from enum import Enum
-from typing import Any
 import pygame
 import socket
 import struct
 import pickle
 import random
 import os
+from pathlib import Path
+from enum import Enum
+from typing import Any
 from socket_utils import recv_all, HEADER_SIZE
 
 class CardPosition(Enum):
@@ -20,7 +21,6 @@ class Card:
         self.position = CardPosition.FACE_DOWN
         self.surface = None
         self.rect = None
-        self.order = 0
 
         if self.name[0].isdigit():
             if self.name[:2].isdigit():
@@ -49,7 +49,7 @@ def receive_cards(sock: socket.socket, num_cards_to_receive: int) -> list[Card]:
 
     received_cards = []
 
-    for _ in range(0, num_cards_to_receive, 1):
+    for _ in range(num_cards_to_receive):
 
         # Receive message length
         raw_message_length = recv_all(sock, HEADER_SIZE)
@@ -72,21 +72,20 @@ def receive_cards(sock: socket.socket, num_cards_to_receive: int) -> list[Card]:
 
 def send_cards(sock: socket.socket, cards_to_send: list[Card]) -> None:
 
-    for sent_card in cards_to_send:
+    for card in cards_to_send:
         # Can't serialize pygame surfaces and rects
-        sent_card.surface = None
-        sent_card.rect = None
+        card.surface = None
+        card.rect = None
 
-        pickled_card = pickle.dumps(sent_card)
-        message_length = struct.pack('!I', len(pickled_card))
-        sock.sendall(message_length + pickled_card)
+        pickled_card = pickle.dumps(card)
+        sock.sendall(struct.pack(f"!I{len(pickled_card)}s", len(pickled_card), pickled_card))
 
 
-def create_deck(directory: str, num_decks: int) -> list[Card]:
+def create_deck(directory: Path, num_decks: int) -> list[Card]:
     cards = []
-    for _ in range(0, num_decks, 1):
+    for _ in range(num_decks):
         for filename in os.listdir(directory):
-            image_surface = pygame.image.load(os.path.join(directory, filename))
+            image_surface = pygame.image.load(directory / filename)
             image_surface = pygame.transform.scale(image_surface, (100, 150))
             cards.append(Card(os.path.splitext(filename)[0], pygame.surfarray.array3d(image_surface)))
 
@@ -98,26 +97,20 @@ def deal(all_cards: list[Card], payoff_pile_size: int) -> tuple[list[Card], list
     pile1 = []
     pile2 = []
 
-    for index in range(0, payoff_pile_size, 1):
+    for index in range(payoff_pile_size):
         if index == payoff_pile_size - 1:
             dealt_card = all_cards.pop()
             dealt_card.position = CardPosition.FACE_UP
-            dealt_card.order = index
             pile1.append(dealt_card)
             dealt_card = all_cards.pop()
             dealt_card.position = CardPosition.FACE_UP
-            dealt_card.order = index
             pile2.append(dealt_card)
         else:
             dealt_card = all_cards.pop()
-            dealt_card.order = index
             pile1.append(dealt_card)
             dealt_card = all_cards.pop()
-            dealt_card.order = index
             pile2.append(dealt_card)
 
     remaining_cards = all_cards
-    for index, remaining_card in enumerate(list(remaining_cards)):
-        remaining_card.order = index
 
     return pile1, pile2, remaining_cards

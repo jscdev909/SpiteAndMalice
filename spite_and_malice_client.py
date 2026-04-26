@@ -1,68 +1,33 @@
 import re
-import socket
-import threading
 import tomllib
-import os
 import sys
 import platform
 import pygame
 import pygame_gui
-from card import CardPosition, receive_cards
-from socket_utils import send_message, receive_message
-from path_utils import get_path
-from enum import Enum
+import socket
+import threading
 from pathlib import Path
-
-
-class SetupStatus(Enum):
-    UNSET = 0,
-    CONNECTING_TO_SERVER = 1,
-    PLAYER_ASSIGNED = 2,
-    WAITING_FOR_OTHER_PLAYER = 3,
-    RECEIVING_CARD_DATA = 4,
-    OTHER_PLAYER_STATUS_CHECK = 5,
-    COMPLETE = 6,
-    ERROR = 7
-
-class SetupErrorStatus(Enum):
-    UNSET = 0,
-    COULD_NOT_CONNECT_TO_SERVER = 1,
-    GAME_LOBBY_FULL = 2,
-    CARD_DATA_RECEIVE_ERROR = 3,
-    OTHER_PLAYER_DISCONNECTED = 4
-
-class RematchStatus(Enum):
-    UNSET = 0,
-    IN_PROGRESS = 1,
-    RECEIVING_CARD_DATA = 2,
-    COMPLETE = 3,
-    ERROR = 4
-
-class RematchErrorStatus(Enum):
-    UNSET = 0,
-    ERROR_RECEIVING_CARD_DATA = 1
-
-class NetworkHandlerStatus(Enum):
-    UNSET = 0,
-    RUNNING = 1,
-    ERROR = 2
-
-class NetworkHandlerErrorStatus(Enum):
-    UNSET = 0,
-    OTHER_PLAYER_DISCONNECTED = 1
-    INVALID_PAYOFF_PILE1_LENGTH = 2,
-    INVALID_PAYOFF_PILE2_LENGTH = 3,
-    INVALID_DRAW_PILE_LENGTH = 4,
-    INVALID_OPPONENT_HAND_LENGTH = 5,
-    INVALID_GAME_RESULT_RESPONSE = 6,
-    INVALID_GAME_WINNER = 7
+from card import Card, CardPosition
+from path_utils import get_path
+from client_threads import (NetworkHandler,
+                            NetworkHandlerStatus,
+                            NetworkHandlerErrorStatus,
+                            RematchSetupThread,
+                            RematchStatus,
+                            RematchErrorStatus,
+                            InitialSetupThread,
+                            SetupStatus,
+                            SetupErrorStatus,
+                            send_message,
+                            receive_message,
+                            receive_cards)
 
 
 class ClientError(Exception):
     pass
 
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 DARK_GREEN = (0, 100, 0)
 WHITE = (255, 255, 255)
@@ -77,42 +42,14 @@ FPS = 60
 host = ""
 port = 0
 
-player_number = 0
 player_name = ""
-opponent_player = 0
-opponent_player_name = ""
-payoff_pile1_top_card = None
-payoff_pile2_top_card = None
-
-network_timer = 20
-game_in_progress = False
-
-payoff_pile1_remaining_cards = 0
-payoff_pile2_remaining_cards = 0
-draw_pile_remaining_cards = 0
-
-opponents_hand_size = 0
-
-game_result_text = None
-
-# For syncing network traffic between main thread and network thread
-network_traffic_lock = threading.Lock()
 
 sound_option = "On"
 card_back_color_option = "Red"
 
-initial_setup_status = SetupStatus.UNSET
-initial_setup_error_status = SetupErrorStatus.UNSET
-
-rematch_setup_status = RematchStatus.UNSET
-rematch_setup_error_status = RematchErrorStatus.UNSET
-
-network_handler_status = NetworkHandlerStatus.UNSET
-network_handler_error_status = NetworkHandlerErrorStatus.UNSET
-
 
 def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
-    global player_number, player_name, host, port, sound_option, card_back_color_option, VERSION
+    global player_name, host, port, sound_option, card_back_color_option, VERSION
 
     getting_user_input = True
     check_user_input = False
@@ -124,13 +61,13 @@ def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
     if platform.system() == "Windows":
         config_file_path = Path("C:/ProgramData") / "jscdev909" / "spite_and_malice_client" / "config.toml"
     elif platform.system() == "Darwin" or platform.system() == "Linux":
-        config_file_path = Path(os.getenv("HOME")) / ".config" / "spite_and_malice_client" / "config.toml"
+        config_file_path = Path.home() / ".config" / "spite_and_malice_client" / "config.toml"
     else:
         unknown_os = True
         config_file_path = Path()
 
     manager = pygame_gui.UIManager((WINDOW_WIDTH, WINDOW_HEIGHT),
-                                   theme_path=get_path("theme.json"))
+                                   theme_path=get_path(Path("theme.json")))
 
     name_entry_line = pygame_gui.elements.UITextEntryLine(
         relative_rect=pygame.Rect(450, 250, 225, 50), manager=manager)
@@ -355,262 +292,24 @@ def show_title_screen_and_get_config(display_surface: pygame.Surface) -> bool:
     return user_quit_game
 
 
-def perform_initial_setup(server_socket: socket.socket):
-
-    global player_number, player_name, opponent_player, initial_setup_status, initial_setup_error_status
-    global host, port, opponent_player_name, payoff_pile1_top_card, payoff_pile2_top_card
-
-    # Connect to the server
-    initial_setup_status = SetupStatus.CONNECTING_TO_SERVER
-    server_socket.settimeout(30)
-
-    try:
-        server_socket.connect((host, port))
-    except OSError:
-        initial_setup_status = SetupStatus.ERROR
-        initial_setup_error_status = SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER
-        return
-
-    # Receive player number
-    send_message(server_socket, f"Player ready! Name: {player_name}")
-    data = receive_message(server_socket)
-
-    if "You are player" in data and data[-1].isdigit():
-        player_number = int(data[-1])
-        initial_setup_status = SetupStatus.PLAYER_ASSIGNED
-    elif "Game lobby is full":
-        initial_setup_status = SetupStatus.ERROR
-        initial_setup_error_status = SetupErrorStatus.GAME_LOBBY_FULL
-        return
-
-    if player_number == 1:
-        opponent_player = 2
-    elif player_number == 2:
-        opponent_player = 1
-
-    if player_number == 1:
-
-        # Receive other player status message
-        send_message(server_socket, "Has player 2 joined?")
-        data = receive_message(server_socket)
-
-        if data == "Waiting for player 2":
-            initial_setup_status = SetupStatus.WAITING_FOR_OTHER_PLAYER
-
-            # Wait for player 2
-            while True:
-                send_message(server_socket, "Has player 2 joined?")
-                data = receive_message(server_socket)
-                if data == "Player 2 has joined":
-                    break
-                else:
-                    pygame.time.wait(2000)
-
-    send_message(server_socket, f"What is player {opponent_player}'s name?")
-    opponent_player_name = receive_message(server_socket)
-
-    if not opponent_player_name:
-        raise ClientError("Received empty opponent player name from server")
-
-    initial_setup_status = SetupStatus.RECEIVING_CARD_DATA
-
-    send_message(server_socket, "Create new deck and payoff piles")
-
-    send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-
-    data = receive_cards(server_socket, 1)
-
-    if not data:
-        initial_setup_status = SetupStatus.ERROR
-        initial_setup_error_status = SetupErrorStatus.CARD_DATA_RECEIVE_ERROR
-        return
-
-    if player_number == 1:
-        payoff_pile1_top_card = data[0]
-    elif player_number == 2:
-        payoff_pile2_top_card = data[0]
-
-    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-
-    data = receive_cards(server_socket, 1)
-
-    if not data:
-        initial_setup_status = SetupStatus.ERROR
-        initial_setup_error_status = SetupErrorStatus.CARD_DATA_RECEIVE_ERROR
-        return
-
-    if opponent_player == 1:
-        payoff_pile1_top_card = data[0]
-    elif opponent_player == 2:
-        payoff_pile2_top_card = data[0]
-
-    initial_setup_status = SetupStatus.OTHER_PLAYER_STATUS_CHECK
-    send_message(server_socket, "Is the other player still connected?")
-    data = receive_message(server_socket)
-
-    if data == "No":
-        initial_setup_status = SetupStatus.ERROR
-        initial_setup_error_status = SetupErrorStatus.OTHER_PLAYER_DISCONNECTED
-        return
-
-    initial_setup_status = SetupStatus.COMPLETE
-    return
-
-
-def perform_rematch_setup(server_socket: socket.socket):
-
-    global payoff_pile1_top_card, payoff_pile2_top_card, rematch_setup_status, rematch_setup_error_status
-    global player_number, opponent_player
-
-    rematch_setup_status = RematchStatus.IN_PROGRESS
-
-    send_message(server_socket, "Set up a new game")
-    send_message(server_socket, "Create new deck and payoff piles")
-
-    rematch_setup_status = RematchStatus.RECEIVING_CARD_DATA
-
-    send_message(server_socket, f"Send the top card of player {player_number}'s payoff pile")
-
-    data = receive_cards(server_socket, 1)
-
-    if not data:
-        rematch_setup_status = SetupStatus.ERROR
-        rematch_setup_error_status = RematchErrorStatus.ERROR_RECEIVING_CARD_DATA
-        return
-
-    if player_number == 1:
-        payoff_pile1_top_card = data[0]
-    elif player_number == 2:
-        payoff_pile2_top_card = data[0]
-
-    send_message(server_socket, f"Send the top card of player {opponent_player}'s payoff pile")
-
-    data = receive_cards(server_socket, 1)
-
-    if not data:
-        rematch_setup_status = SetupStatus.ERROR
-        rematch_setup_error_status = RematchErrorStatus.ERROR_RECEIVING_CARD_DATA
-        return
-
-    if opponent_player == 1:
-        payoff_pile1_top_card = data[0]
-    elif opponent_player == 2:
-        payoff_pile2_top_card = data[0]
-
-    rematch_setup_status = RematchStatus.COMPLETE
-
-    return
-
-
-def game_networking_handler(server_socket: socket.socket):
-    global network_timer, game_in_progress, network_handler_status, network_handler_error_status
-    global payoff_pile1_remaining_cards, payoff_pile2_remaining_cards, draw_pile_remaining_cards
-    global opponents_hand_size, game_result_text, network_traffic_lock
-
-    network_handler_status = NetworkHandlerStatus.RUNNING
-
-    while game_in_progress:
-        if network_timer == 0:
-
-            network_traffic_lock.acquire()
-            send_message(server_socket, "Is the other player still connected?")
-            data = receive_message(server_socket)
-            network_traffic_lock.release()
-
-            if data == "No":
-                network_handler_status = NetworkHandlerStatus.ERROR
-                network_handler_error_status = NetworkHandlerErrorStatus.OTHER_PLAYER_DISCONNECTED
-
-            network_traffic_lock.acquire()
-            send_message(server_socket,"How many cards are left in player 1's payoff pile?")
-            data = receive_message(server_socket)
-            network_traffic_lock.release()
-
-            if not data.isdigit():
-                network_handler_status = NetworkHandlerStatus.ERROR
-                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE1_LENGTH
-
-            payoff_pile1_remaining_cards = int(data)
-
-            network_traffic_lock.acquire()
-            send_message(server_socket,
-                         "How many cards are left in player 2's payoff pile?")
-            data = receive_message(server_socket)
-            network_traffic_lock.release()
-
-            if not data.isdigit():
-                network_handler_status = NetworkHandlerStatus.ERROR
-                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE2_LENGTH
-
-            payoff_pile2_remaining_cards = int(data)
-
-            network_traffic_lock.acquire()
-            send_message(server_socket,"How many cards are left in the draw pile?")
-            data = receive_message(server_socket)
-            network_traffic_lock.release()
-
-            if data.isdigit():
-                draw_pile_remaining_cards = int(data)
-            else:
-                network_handler_status = NetworkHandlerStatus.ERROR
-                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_DRAW_PILE_LENGTH
-
-            network_traffic_lock.acquire()
-            send_message(server_socket,f"How many cards are in player {opponent_player}'s hand?")
-            data = receive_message(server_socket)
-            network_traffic_lock.release()
-
-            if data.isdigit():
-                opponents_hand_size = int(data)
-            else:
-                network_handler_status = NetworkHandlerStatus.ERROR
-                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_OPPONENT_HAND_LENGTH
-
-            network_traffic_lock.acquire()
-            send_message(server_socket,"Has the game result been determined?")
-            data = receive_message(server_socket)
-            network_traffic_lock.release()
-
-            if data == "Yes":
-
-                network_traffic_lock.acquire()
-                send_message(server_socket, "Who won the game?")
-                data = receive_message(server_socket)
-                network_traffic_lock.release()
-
-                # Win / lose / stalemate conditions
-                if player_number == 1 and data == "Player 1" or player_number == 2 and data == "Player 2":
-                    game_result_text = pygame.font.SysFont("Arial", 60).render("YOU WIN!", True, WHITE)
-                elif player_number == 2 and data == "Player 1" or player_number == 1 and data == "Player 2":
-                    game_result_text = pygame.font.SysFont("Arial", 60).render("Sorry, you lose!", True, WHITE)
-                elif data == "Stalemate":
-                    game_result_text = pygame.font.SysFont("Arial", 60).render("STALEMATE!", True, WHITE)
-                else:
-                    network_handler_status = NetworkHandlerStatus.ERROR
-                    network_handler_error_status = NetworkHandlerErrorStatus.INVALID_GAME_WINNER
-
-            elif data != "No":
-                network_handler_status = NetworkHandlerStatus.ERROR
-                network_handler_error_status = NetworkHandlerErrorStatus.INVALID_GAME_RESULT_RESPONSE
-
-        if network_timer == 0:
-            network_timer = 20
-        else:
-            network_timer -= 1
-
-    network_handler_status = NetworkHandlerStatus.UNSET
-
-    return
-
-
-def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
-
-    global player_number, opponent_player, sound_option
-    global payoff_pile1_top_card, payoff_pile2_top_card, rematch_setup_status, rematch_setup_error_status
-    global payoff_pile1_remaining_cards, payoff_pile2_remaining_cards, draw_pile_remaining_cards
-    global opponents_hand_size, game_result_text, game_in_progress
-    global network_handler_status, network_handler_error_status
-    global network_traffic_lock
+def run_game(server_socket: socket.socket,
+             display_surface: pygame.Surface,
+             player_number: int,
+             opponent_player_name: str,
+             opponent_player: int,
+             payoff_pile1_top_card: Card | None,
+             payoff_pile2_top_card: Card | None):
+
+    global sound_option
+
+    game_result_text = None
+
+    payoff_pile1_remaining_cards = 0
+    payoff_pile2_remaining_cards = 0
+    draw_pile_remaining_cards = 0
+    opponents_hand_size = 0
+
+    network_traffic_lock = threading.Lock()
 
     socket_closed = False
 
@@ -625,31 +324,31 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
     first_turn = True
 
     discard_piles1 = [[], [], [], []]
-    discard_piles1_rects = [None, None, None, None]
+    discard_piles1_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
 
     discard_piles2 = [[], [], [], []]
-    discard_piles2_rects = [None, None, None, None]
+    discard_piles2_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
 
     build_piles = [[], [], [], []]
-    build_piles_rects = [None, None, None, None]
+    build_piles_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
 
     current_hand = []
 
-    # Make sure card_back has a default value
-    card_back = pygame.image.load(get_path("assets/card_backs/card_back_red.png")).convert_alpha()
+    # Make sure card_back has a default value (the red card back surface)
+    card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_red.png")).convert_alpha()
 
+    # Note: "Red" isn't checked explicitly below since card_back was
+    # already assigned the red card back surface as a default value
     if card_back_color_option == "Black":
-        card_back = pygame.image.load(get_path("assets/card_backs/card_back_black.png")).convert_alpha()
+        card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_black.png")).convert_alpha()
     elif card_back_color_option == "Blue":
-        card_back = pygame.image.load(get_path("assets/card_backs/card_back_blue.png")).convert_alpha()
+        card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_blue.png")).convert_alpha()
     elif card_back_color_option == "Green":
-        card_back = pygame.image.load(get_path("assets/card_backs/card_back_green.png")).convert_alpha()
+        card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_green.png")).convert_alpha()
     elif card_back_color_option == "Orange":
-        card_back = pygame.image.load(get_path("assets/card_backs/card_back_orange.png")).convert_alpha()
+        card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_orange.png")).convert_alpha()
     elif card_back_color_option == "Purple":
-        card_back = pygame.image.load(get_path("assets/card_backs/card_back_purple.png")).convert_alpha()
-    elif card_back_color_option == "Red":
-        card_back = pygame.image.load(get_path("assets/card_backs/card_back_red.png")).convert_alpha()
+        card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_purple.png")).convert_alpha()
 
     card_back = pygame.transform.scale(card_back, (100, 150))
     card_back_rect = card_back.get_rect()
@@ -657,7 +356,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
     font = pygame.font.SysFont("Arial", 30)
 
     currently_dragging_card = False
-    card_being_dragged = None
+    card_being_dragged: Card | None = None
 
     original_dragging_x = 0
     original_dragging_y = 0
@@ -668,34 +367,39 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
     turn_switch = False
 
-    # Used to signal the networking thread that it should keep running
-    game_in_progress = True
+    game_over = threading.Event()
 
-    # Start the networking thread
-    networking_thread = threading.Thread(target=game_networking_handler, args=(server_socket,), daemon=True)
+    networking_thread = NetworkHandler(server_socket, player_number, opponent_player, network_traffic_lock, game_over)
     networking_thread.start()
 
     while running:
 
         # Check the networking thread status
-        if network_handler_status == NetworkHandlerStatus.ERROR:
+        if networking_thread.status == NetworkHandlerStatus.RUNNING:
+            payoff_pile1_remaining_cards = networking_thread.payoff_pile1_remaining_cards
+            payoff_pile2_remaining_cards = networking_thread.payoff_pile2_remaining_cards
+            draw_pile_remaining_cards = networking_thread.draw_pile_remaining_cards
+            opponents_hand_size = networking_thread.opponents_hand_size
+            game_result_text = networking_thread.game_result_text
+        elif networking_thread.status == NetworkHandlerStatus.ERROR:
             # Signal the networking thread to stop
-            game_in_progress = False
+            networking_thread.game_over.set()
             networking_thread.join()
-            if network_handler_error_status == NetworkHandlerErrorStatus.OTHER_PLAYER_DISCONNECTED:
+            if networking_thread.error == NetworkHandlerErrorStatus.OTHER_PLAYER_DISCONNECTED:
                 raise ClientError("Other player disconnected!")
-            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE1_LENGTH:
+            elif networking_thread.error == NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE1_LENGTH:
                 raise ClientError("Invalid payoff pile 1 length received from server")
-            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE2_LENGTH:
+            elif networking_thread.error == NetworkHandlerErrorStatus.INVALID_PAYOFF_PILE2_LENGTH:
                 raise ClientError("Invalid payoff pile 2 length received from server")
-            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_DRAW_PILE_LENGTH:
+            elif networking_thread.error == NetworkHandlerErrorStatus.INVALID_DRAW_PILE_LENGTH:
                 raise ClientError("Invalid draw pile length received from server")
-            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_OPPONENT_HAND_LENGTH:
+            elif networking_thread.error == NetworkHandlerErrorStatus.INVALID_OPPONENT_HAND_LENGTH:
                 raise ClientError("Invalid opponent hand length received from server")
-            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_GAME_RESULT_RESPONSE:
+            elif networking_thread.error == NetworkHandlerErrorStatus.INVALID_GAME_RESULT_RESPONSE:
                 raise ClientError("Invalid game result response received from server")
-            elif network_handler_error_status == NetworkHandlerErrorStatus.INVALID_GAME_WINNER:
+            elif networking_thread.error == NetworkHandlerErrorStatus.INVALID_GAME_WINNER:
                 raise ClientError("Invalid game winner received from server")
+
 
         if turn_switch or first_turn:
 
@@ -724,7 +428,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 network_traffic_lock.release()
 
                 if sound_option == "On":
-                    draw_cards_sound_effect = pygame.mixer.Sound(get_path("assets/dealing_cards.wav"))
+                    draw_cards_sound_effect = pygame.mixer.Sound(get_path(Path("assets") / "dealing_cards.wav"))
                     draw_cards_sound_effect.play()
 
             if not draggable_cards_set:
@@ -1160,14 +864,13 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # Signal the networking thread to stop
-                game_in_progress = False
+                networking_thread.game_over.set()
                 networking_thread.join()
                 running = False
 
             if event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
-                    if currently_dragging_card:
+                    if currently_dragging_card and card_being_dragged:
                         if card_being_dragged.rect.colliderect(build_piles_rects[0]):
                             if ((build_piles[0] and card_being_dragged.rank == build_piles[0][-1].rank + 1) or
                                 ((not build_piles[0] and card_being_dragged.rank == 1) or card_being_dragged.rank == 13) or
@@ -1205,7 +908,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 0")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile1_top_card:
+                                    elif card_being_dragged == payoff_pile1_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 0")
 
@@ -1253,7 +956,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 0")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile2_top_card:
+                                    elif card_being_dragged == payoff_pile2_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 0")
 
@@ -1323,7 +1026,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 1")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile1_top_card:
+                                    elif card_being_dragged == payoff_pile1_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 1")
 
@@ -1371,7 +1074,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 1")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile2_top_card:
+                                    elif card_being_dragged == payoff_pile2_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 1")
 
@@ -1442,7 +1145,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 2")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile1_top_card:
+                                    elif card_being_dragged == payoff_pile1_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 2")
 
@@ -1490,7 +1193,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 2")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile2_top_card:
+                                    elif card_being_dragged == payoff_pile2_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 2")
 
@@ -1560,7 +1263,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 3")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile1_top_card:
+                                    elif card_being_dragged == payoff_pile1_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 3")
 
@@ -1608,7 +1311,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their discard pile 3 to build pile 3")
                                         network_traffic_lock.release()
-                                    elif card_being_dragged == payoff_pile2_top_card:
+                                    elif card_being_dragged == payoff_pile2_top_card and hasattr(card_being_dragged, "name"):
                                         network_traffic_lock.acquire()
                                         send_message(server_socket, f"Player {player_number} moved {card_being_dragged.name} from their payoff pile to build pile 3")
 
@@ -1909,7 +1612,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                     currently_dragging_card = True
                     card_being_dragged = card
 
-            if currently_dragging_card:
+            if currently_dragging_card and card_being_dragged:
                 card_being_dragged.rect.centerx = mouse_x
                 card_being_dragged.rect.centery = mouse_y
 
@@ -1926,29 +1629,23 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 card_back_rect.left = 25
                 card_back_rect.bottom = WINDOW_HEIGHT
                 display_surface.blit(card_back, card_back_rect)
-                if payoff_pile1_top_card != card_being_dragged:
-                    payoff_pile1_top_card.rect.left = 25
-                    payoff_pile1_top_card.rect.bottom = WINDOW_HEIGHT
-                    display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
-            else:
-                if payoff_pile1_top_card != card_being_dragged:
-                    payoff_pile1_top_card.rect.left = 25
-                    payoff_pile1_top_card.rect.bottom = WINDOW_HEIGHT
-                    display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
+
+            if payoff_pile1_top_card != card_being_dragged and payoff_pile1_top_card:
+                payoff_pile1_top_card.rect.left = 25
+                payoff_pile1_top_card.rect.bottom = WINDOW_HEIGHT
+                display_surface.blit(payoff_pile1_top_card.surface, payoff_pile1_top_card.rect)
+
         elif player_number == 2:
             if payoff_pile2_remaining_cards > 1:
                 card_back_rect.left = 25
                 card_back_rect.bottom = WINDOW_HEIGHT
                 display_surface.blit(card_back, card_back_rect)
-                if payoff_pile2_top_card != card_being_dragged:
-                    payoff_pile2_top_card.rect.left = 25
-                    payoff_pile2_top_card.rect.bottom = WINDOW_HEIGHT
-                    display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
-            else:
-                if payoff_pile2_top_card != card_being_dragged:
-                    payoff_pile2_top_card.rect.left = 25
-                    payoff_pile2_top_card.rect.bottom = WINDOW_HEIGHT
-                    display_surface.blit(payoff_pile2_top_card.surface, payoff_pile2_top_card.rect)
+
+            if payoff_pile2_top_card != card_being_dragged and payoff_pile2_top_card:
+                payoff_pile2_top_card.rect.left = 25
+                payoff_pile2_top_card.rect.bottom = WINDOW_HEIGHT
+                display_surface.blit(payoff_pile2_top_card.surface,
+                                     payoff_pile2_top_card.rect)
 
         if player_number == 1:
             for x in range(0, len(discard_piles1_rects), 1):
@@ -2150,7 +1847,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
         draw_pile_remaining_cards_rect.y = WINDOW_HEIGHT // 2
         display_surface.blit(draw_pile_remaining_cards_text, draw_pile_remaining_cards_rect)
 
-        if currently_dragging_card:
+        if currently_dragging_card and card_being_dragged:
             display_surface.blit(card_being_dragged.surface, card_being_dragged.rect)
 
         if game_result_text is None:
@@ -2171,13 +1868,13 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                 send_message(server_socket, "Draw pile needs to be reshuffled")
                 network_traffic_lock.release()
                 if sound_option == "On":
-                    shuffle_sound_effect = pygame.mixer.Sound(get_path("assets/shuffle_cards.wav"))
+                    shuffle_sound_effect = pygame.mixer.Sound(get_path(Path("assets") / "shuffle_cards.wav"))
                     shuffle_sound_effect.play()
                 draw_pile_needs_to_be_reshuffled = False
 
         if first_turn:
             if sound_option == "On":
-                shuffle_sound_effect = pygame.mixer.Sound(get_path("assets/shuffle_cards.wav"))
+                shuffle_sound_effect = pygame.mixer.Sound(get_path(Path("assets") / "shuffle_cards.wav"))
                 shuffle_sound_effect.play()
                 pygame.time.wait(1000)
             first_turn = False
@@ -2194,7 +1891,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
             draggable_cards = []
 
             # Signal the networking thread to stop
-            game_in_progress = False
+            networking_thread.game_over.set()
             networking_thread.join()
 
             rematch_manager = pygame_gui.UIManager(
@@ -2316,7 +2013,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                         current_hand = []
                         game_result_text = None
 
-                        rematch_setup_thread = threading.Thread(target=perform_rematch_setup, args=(server_socket,), daemon=True)
+                        rematch_setup_thread = RematchSetupThread(server_socket, player_number, opponent_player)
                         rematch_setup_thread.start()
 
                         setting_up_rematch = True
@@ -2328,26 +2025,27 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                                     setting_up_rematch = False
                                     user_quit_game = True
 
-                            if rematch_setup_status == RematchStatus.IN_PROGRESS:
+                            if rematch_setup_thread.status == RematchStatus.IN_PROGRESS:
                                 status_text = font.render(
                                     "Re-match setup in progress, please wait...",
                                     True, WHITE)
-                            elif rematch_setup_status == RematchStatus.ERROR:
-                                if rematch_setup_error_status == RematchErrorStatus.ERROR_RECEIVING_CARD_DATA:
+                            elif rematch_setup_thread.status == RematchStatus.ERROR:
+                                if rematch_setup_thread.error == RematchErrorStatus.ERROR_RECEIVING_CARD_DATA:
                                     status_text = font.render(
                                         "      Error receiving card data from server!\nPlease restart the program to enter a new game",
                                         True, WHITE)
-                            elif rematch_setup_status == RematchStatus.COMPLETE:
+                            elif rematch_setup_thread.status == RematchStatus.COMPLETE:
                                 status_text = font.render(
                                     "Re-match setup complete! Entering new game...",
                                     True, WHITE)
                                 setting_up_rematch = False
 
-                                # Used to signal the networking thread that it should keep running
-                                game_in_progress = True
+                                payoff_pile1_top_card = rematch_setup_thread.payoff_pile1_top_card
+                                payoff_pile2_top_card = rematch_setup_thread.payoff_pile2_top_card
 
                                 # Start the networking thread
-                                networking_thread = threading.Thread(target=game_networking_handler, args=(server_socket,), daemon=True)
+                                game_over = threading.Event()
+                                networking_thread = NetworkHandler(server_socket, player_number, opponent_player, network_traffic_lock, game_over)
                                 networking_thread.start()
 
                             display_surface.fill(DARK_GREEN)
@@ -2363,7 +2061,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
                     elif data == "Undecided":
                         display_surface.fill(DARK_GREEN)
                         status_text = pygame.font.SysFont("Arial", 32).render(
-                            f"Waiting for other player's re-match decision...",
+                            "Waiting for other player's re-match decision...",
                             True, WHITE)
                         status_rect = status_text.get_rect()
                         status_rect.centerx = WINDOW_WIDTH // 2
@@ -2391,7 +2089,7 @@ def run_game(server_socket: socket.socket, display_surface: pygame.Surface):
 
 def main(display_surface: pygame.Surface):
 
-    global initial_setup_status, initial_setup_error_status
+    global host, port, player_name
 
     user_quit_game = show_title_screen_and_get_config(display_surface)
 
@@ -2399,7 +2097,7 @@ def main(display_surface: pygame.Surface):
 
     if not user_quit_game:
         try:
-            initial_setup_thread = threading.Thread(target=perform_initial_setup, args=(server_socket,), daemon=True)
+            initial_setup_thread = InitialSetupThread(server_socket, host, port, player_name)
             initial_setup_thread.start()
 
             performing_setup = True
@@ -2417,17 +2115,17 @@ def main(display_surface: pygame.Surface):
                 display_surface.fill(DARK_GREEN)
 
                 status_text = None
-                if initial_setup_status == SetupStatus.CONNECTING_TO_SERVER:
+                if initial_setup_thread.status == SetupStatus.CONNECTING_TO_SERVER:
                     status_text = status_font.render("Connecting to server...", True, WHITE, DARK_GREEN)
-                elif initial_setup_status == SetupStatus.PLAYER_ASSIGNED:
-                    status_text = status_font.render(f"You are player {player_number}", True, WHITE, DARK_GREEN)
-                elif initial_setup_status == SetupStatus.WAITING_FOR_OTHER_PLAYER:
+                elif initial_setup_thread.status == SetupStatus.PLAYER_ASSIGNED:
+                    status_text = status_font.render(f"You are player {initial_setup_thread.player_number}", True, WHITE, DARK_GREEN)
+                elif initial_setup_thread.status == SetupStatus.WAITING_FOR_OTHER_PLAYER:
                     status_text = status_font.render("Waiting for other player to join...", True, WHITE, DARK_GREEN)
-                elif initial_setup_status == SetupStatus.RECEIVING_CARD_DATA:
+                elif initial_setup_thread.status == SetupStatus.RECEIVING_CARD_DATA:
                     status_text = status_font.render("Receiving card data from server...", True, WHITE, DARK_GREEN)
-                elif initial_setup_status == SetupStatus.OTHER_PLAYER_STATUS_CHECK:
+                elif initial_setup_thread.status == SetupStatus.OTHER_PLAYER_STATUS_CHECK:
                     status_text = status_font.render("Checking status of other player...", True, WHITE, DARK_GREEN)
-                elif initial_setup_status == SetupStatus.COMPLETE:
+                elif initial_setup_thread.status == SetupStatus.COMPLETE:
                     status_text = status_font.render("Initial setup complete! Loading game...", True, WHITE, DARK_GREEN)
 
                 if status_text is not None:
@@ -2438,25 +2136,31 @@ def main(display_surface: pygame.Surface):
 
                 pygame.display.update()
 
-                if ((initial_setup_error_status != SetupErrorStatus.UNSET) or
-                    (initial_setup_status == SetupStatus.COMPLETE and
-                     initial_setup_error_status == SetupErrorStatus.UNSET)):
+                if ((initial_setup_thread.error != SetupErrorStatus.UNSET) or
+                    (initial_setup_thread.status == SetupStatus.COMPLETE and
+                     initial_setup_thread.error == SetupErrorStatus.UNSET)):
                     performing_setup = False
 
-            if (initial_setup_status == SetupStatus.COMPLETE and
-                initial_setup_error_status == SetupErrorStatus.UNSET and not user_quit_game):
-                run_game(server_socket, display_surface)
+            if (initial_setup_thread.status == SetupStatus.COMPLETE and
+                initial_setup_thread.error == SetupErrorStatus.UNSET and not user_quit_game):
+                run_game(server_socket,
+                         display_surface,
+                         initial_setup_thread.player_number,
+                         initial_setup_thread.opponent_player_name,
+                         initial_setup_thread.opponent_player,
+                         initial_setup_thread.payoff_pile1_top_card,
+                         initial_setup_thread.payoff_pile2_top_card)
             else:
                 if user_quit_game:
                     server_socket.close()
                 else:
-                    if initial_setup_error_status == SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER:
+                    if initial_setup_thread.error == SetupErrorStatus.COULD_NOT_CONNECT_TO_SERVER:
                         raise ClientError(f"Could not connect to server {host}:{port}")
-                    elif initial_setup_error_status == SetupErrorStatus.GAME_LOBBY_FULL:
+                    elif initial_setup_thread.error == SetupErrorStatus.GAME_LOBBY_FULL:
                         raise ClientError("Game lobby full!")
-                    elif initial_setup_error_status == SetupErrorStatus.CARD_DATA_RECEIVE_ERROR:
+                    elif initial_setup_thread.error == SetupErrorStatus.CARD_DATA_RECEIVE_ERROR:
                         raise ClientError("Error receiving card data from server")
-                    elif initial_setup_error_status == SetupErrorStatus.OTHER_PLAYER_DISCONNECTED:
+                    elif initial_setup_thread.error == SetupErrorStatus.OTHER_PLAYER_DISCONNECTED:
                         raise ClientError("Other player disconnected!")
 
         except TimeoutError:

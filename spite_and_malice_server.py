@@ -3,872 +3,643 @@ import threading
 import re
 import random
 import tomllib
-import os
 import sys
 import platform
-from collections import deque
-from card import CardPosition, send_cards, deal, create_deck
+from player import Player
+from card import Card, CardPosition, send_cards, deal, create_deck
 from socket_utils import receive_message, send_message
 from path_utils import get_path
 from pathlib import Path
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 HOST = "0.0.0.0"
 
-connection_count = 0
-current_turn = 0
-current_turn_lock = threading.Lock()
-connection_count_lock = threading.Lock()
-card_lock = threading.Lock()
-deck = []
-payoff_pile1 = []
-payoff_pile2 = []
-build_piles = [[], [], [], []]
-player1_discard_piles = [[], [], [], []]
-player2_discard_piles = [[], [], [], []]
-draw_pile = []
-player1_name = ""
-player1_hand = []
-player1_draw_count = 0
-player1_moves_queue = deque()
-player1_rematch = None
-player2_name = ""
-player2_hand = []
-player2_draw_count = 0
-player2_moves_queue = deque()
-player2_rematch = None
-rematch_setup_complete = False
-rematch_setup_lock = threading.Lock()
 
 class ServerError(Exception):
     pass
 
-def handle_client(client_socket: socket.socket, client_address: tuple[str, int], num_decks: int, payoff_pile_size: int) -> None:
-    global connection_count, current_turn, deck, payoff_pile1, payoff_pile2, draw_pile
-    global player1_hand, player2_hand, player1_draw_count, player2_draw_count
-    global player1_name, player2_name, player1_rematch, player2_rematch, rematch_setup_complete
-    global build_piles, player1_discard_piles, player2_discard_piles
+class ClientHandler:
+    players: list[Player] = []
+    connection_count = 0
+    current_turn = 0
+    current_turn_lock = threading.Lock()
+    connection_count_lock = threading.Lock()
+    card_lock = threading.Lock()
+    deck: list[Card] = []
+    draw_pile: list[Card] = []
+    build_piles: list[list[Card]] = [[], [], [], []]
+    rematch_setup_complete = False
+    rematch_setup_lock = threading.Lock()
 
-    player_number = 0
+    def __init__(self):
+        self.player_number = 0
 
-    print(f"[+] Accepted connection from {client_address[0]}:{client_address[1]}", flush=True)
+    def handle_client(self, client_socket: socket.socket, client_address: tuple[str, int], num_decks: int, payoff_pile_size: int) -> None:
 
-    try:
-        while True:
-            request = receive_message(client_socket)
-            if not request:
-                print("[*] Client disconnected!", flush=True)
-                break
+        print(f"[+] Accepted connection from {client_address[0]}:{client_address[1]}", flush=True)
 
-            elif "Player ready!" in request:
-                connection_count_lock.acquire()
-                if connection_count == 2:
-                    send_message(client_socket, "Game lobby is full")
-                    connection_count_lock.release()
-                else:
-                    connection_count += 1
-                    player_number = connection_count
-                    connection_count_lock.release()
+        try:
+            while True:
+                request = receive_message(client_socket)
+                if not request:
+                    print("[*] Client disconnected!", flush=True)
+                    break
 
-                    player_name_match = re.search(r"Name: (.*)", request)
-                    if player_name_match:
-                        if player_number == 1:
-                            player1_name = player_name_match.group(1)
-                            print(f"[*] Player {player_number} ({player1_name}) has joined the game", flush=True)
-                            send_message(client_socket,f"You are player {player_number}")
-                        elif player_number == 2:
-                            player2_name = player_name_match.group(1)
-                            print(f"[*] Player {player_number} ({player2_name}) has joined the game", flush=True)
-                            send_message(client_socket,f"You are player {player_number}")
+                elif "Player ready!" in request:
+                    ClientHandler.connection_count_lock.acquire()
+                    if ClientHandler.connection_count == 2:
+                        send_message(client_socket, "Game lobby is full")
+                        ClientHandler.connection_count_lock.release()
+                    else:
+                        ClientHandler.connection_count += 1
+                        self.player_number = ClientHandler.connection_count
+                        ClientHandler.connection_count_lock.release()
+
+                        player_name_match = re.search(r"Name: (.*)", request)
+                        if player_name_match:
+                            player_name = player_name_match.group(1)
+                            new_player = Player(self.player_number, player_name)
+                            ClientHandler.players.append(new_player)
+                            print(f"[*] Player {new_player.number} ({new_player.name}) has joined the game", flush=True)
+                            send_message(client_socket,f"You are player {new_player.number}")
                         else:
-                            raise ServerError("Player number cannot be 0!")
+                            raise ServerError("Received an invalid player name")
+
+                # Note: This request should only be sent by the player 1 client
+                elif request == "Has player 2 joined?":
+                    ClientHandler.connection_count_lock.acquire()
+                    if ClientHandler.connection_count == 2:
+                        ClientHandler.connection_count_lock.release()
+                        send_message(client_socket, "Player 2 has joined")
+                    elif ClientHandler.connection_count == 1:
+                        ClientHandler.connection_count_lock.release()
+                        send_message(client_socket, "Waiting for player 2")
                     else:
-                        raise ServerError("Received an invalid player name")
+                        ClientHandler.connection_count_lock.release()
+                        raise ServerError("Has player 2 joined request - Invalid connection count")
 
-            # Note: This request should only be sent by the player 1 client
-            elif request == "Has player 2 joined?":
-                connection_count_lock.acquire()
-                if connection_count == 2:
-                    connection_count_lock.release()
-                    send_message(client_socket, "Player 2 has joined")
-                else:
-                    connection_count_lock.release()
-                    send_message(client_socket, "Waiting for player 2")
 
-            elif "What is player" in request and "name" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError("Could not parse target player ID from client data")
+                elif "What is player" in request and "name" in request:
+                    pattern = r"player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError("Could not parse target player ID from client data")
 
-                if target_player == 1:
-                    send_message(client_socket, player1_name)
-                elif target_player == 2:
-                    send_message(client_socket, player2_name)
-                else:
-                    raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            raise ServerError(
+                                f"Player name request - Object for player {target_player} does not exist")
+                        send_message(client_socket, player.name)
+                    else:
+                        raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
 
-            elif "Player" in request and "did not want a re-match" in request:
-                target_player = 0
-                pattern = r"Player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
 
-                if target_player == 1:
-                    player1_rematch = False
-                elif target_player == 2:
-                    player2_rematch = False
+                elif "Player" in request and "did not want a re-match" in request:
+                    pattern = r"Player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError(
+                            "Could not parse target player ID from client data")
 
-            elif "Player" in request and "wants a re-match" in request:
-                target_player = 0
-                pattern = r"Player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            raise ServerError(
+                                f"Player did not want re-match request - Object for player {target_player} does not exist")
+                        player.rematch = False
+                    else:
+                        raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
 
-                if target_player == 1:
-                    player1_rematch = True
-                elif target_player == 2:
-                    player2_rematch = True
 
-            elif "Does player" in request and "also want a re-match?" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
+                elif "Player" in request and "wants a re-match" in request:
+                    pattern = r"Player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError(
+                            "Could not parse target player ID from client data")
 
-                if target_player == 1:
-                    if player1_rematch is True:
-                        send_message(client_socket, "Yes")
-                    elif player1_rematch is False:
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            raise ServerError(
+                                f"Player wants re-match request - Object for player {target_player} does not exist")
+                        player.rematch = True
+                    else:
+                        raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
+
+
+                elif "Does player" in request and "also want a re-match?" in request:
+                    pattern = r"player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError(
+                            "Could not parse target player ID from client data")
+
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            raise ServerError(
+                                f"Does opponent also want a rematch request - Object for player {target_player} does not exist")
+
+                        if player.rematch is True:
+                            send_message(client_socket, "Yes")
+                        elif player.rematch is False:
+                            send_message(client_socket, "No")
+                        else:
+                            send_message(client_socket, "Undecided")
+
+                    else:
+                        raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
+
+
+                elif request == "Set up a new game":
+                    ClientHandler.rematch_setup_lock.acquire()
+
+                    if ClientHandler.rematch_setup_complete:
+                        ClientHandler.rematch_setup_complete = False
+                    else:
+                        print("[*] New game requested, resetting game parameters...", flush=True)
+                        ClientHandler.card_lock.acquire()
+                        ClientHandler.deck = []
+                        ClientHandler.build_piles = [[], [], [], []]
+                        ClientHandler.draw_pile = []
+                        ClientHandler.card_lock.release()
+
+                        for player in ClientHandler.players:
+                            player.reset()
+
+                        ClientHandler.current_turn_lock.acquire()
+                        ClientHandler.current_turn = 0
+                        ClientHandler.current_turn_lock.release()
+                        ClientHandler.rematch_setup_complete = True
+
+                    ClientHandler.rematch_setup_lock.release()
+
+                elif request == "Draw pile needs to be reshuffled":
+
+                    ClientHandler.card_lock.acquire()
+
+                    draw_pile_needs_to_be_reshuffled = False
+                    cards_to_shuffle = []
+                    if len(ClientHandler.build_piles[0]) == 12:
+                        cards_to_shuffle += ClientHandler.build_piles[0]
+                        ClientHandler.build_piles[0] = []
+                        draw_pile_needs_to_be_reshuffled = True
+                    if len(ClientHandler.build_piles[1]) == 12:
+                        cards_to_shuffle += ClientHandler.build_piles[1]
+                        ClientHandler.build_piles[1] = []
+                        draw_pile_needs_to_be_reshuffled = True
+                    if len(ClientHandler.build_piles[2]) == 12:
+                        cards_to_shuffle += ClientHandler.build_piles[2]
+                        ClientHandler.build_piles[2] = []
+                        draw_pile_needs_to_be_reshuffled = True
+                    if len(ClientHandler.build_piles[3]) == 12:
+                        cards_to_shuffle += ClientHandler.build_piles[3]
+                        ClientHandler.build_piles[3] = []
+                        draw_pile_needs_to_be_reshuffled = True
+
+                    if draw_pile_needs_to_be_reshuffled:
+                        ClientHandler.draw_pile += cards_to_shuffle
+                        random.shuffle(ClientHandler.draw_pile)
+
+                    ClientHandler.card_lock.release()
+
+                elif request == "Create new deck and payoff piles":
+                    ClientHandler.card_lock.acquire()
+
+                    if len(ClientHandler.players) != 2:
+                        ClientHandler.card_lock.release()
+                        raise ServerError("Request to create new deck and payoff piles without two players")
+
+                    if not ClientHandler.deck and not ClientHandler.players[0].payoff_pile and not ClientHandler.players[1].payoff_pile and not ClientHandler.draw_pile:
+                        # Create the deck, payoff piles and draw pile
+                        print(f"[*] Creating the deck (player {self.player_number} thread)...", flush=True)
+                        full_deck = create_deck(get_path(Path("assets") / "card_faces"), num_decks)
+                        print(f"[*] Creating the payoff piles and draw pile (player {self.player_number} thread)...", flush=True)
+                        ClientHandler.players[0].payoff_pile, ClientHandler.players[1].payoff_pile, ClientHandler.draw_pile = deal(full_deck, payoff_pile_size)
+                    else:
+                        print(f"[*] Status update from player {self.player_number} thread: other thread already created decks and piles", flush=True)
+
+                    ClientHandler.card_lock.release()
+
+                elif request == "Is the other player still connected?":
+                    ClientHandler.connection_count_lock.acquire()
+                    if ClientHandler.connection_count == 1:
                         send_message(client_socket, "No")
-                    else:
-                        send_message(client_socket, "Undecided")
-                elif target_player == 2:
-                    if player2_rematch is True:
+                    elif ClientHandler.connection_count == 2:
                         send_message(client_socket, "Yes")
-                    elif player2_rematch is False:
+                    else:
+                        ClientHandler.connection_count_lock.release()
+                        raise ServerError("Other player still connected request - Invalid connection count")
+                    ClientHandler.connection_count_lock.release()
+
+                elif "How many cards are in player" in request and "hand" in request:
+                    pattern = r"player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError(
+                            "Could not parse target player ID from client data")
+
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if target_player == p.number), None)
+                        if not player:
+                            raise ServerError(
+                                f"Player hand card count request - Object for player {target_player} does not exist")
+                        ClientHandler.card_lock.acquire()
+                        send_message(client_socket, str(len(player.hand)))
+                        ClientHandler.card_lock.release()
+                    else:
+                        raise ServerError(f"Invalid player ID ({target_player}) specified in client data")
+
+                elif "How many cards are left in player" in request and "payoff pile?" in request:
+                    pattern = r"player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError(
+                            "Could not parse target player ID from client data")
+
+                    ClientHandler.card_lock.acquire()
+
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if target_player == p.number), None)
+                        if not player:
+                            ClientHandler.card_lock.release()
+                            raise ServerError(f"Payoff pile count request - Object for target player {target_player} does not exist")
+                        send_message(client_socket, str(len(player.payoff_pile)))
+                    else:
+                        ClientHandler.card_lock.release()
+                        raise ServerError(f"Attempt to check payoff pile of unrecognized target player {target_player}")
+
+                    ClientHandler.card_lock.release()
+
+                elif "Send the top card of player" in request and "payoff pile" in request:
+                    pattern = r"player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError(
+                            "Could not parse target player ID from client data")
+
+                    ClientHandler.card_lock.acquire()
+
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            ClientHandler.card_lock.release()
+                            raise ServerError(
+                                f"Payoff pile top card request - Object for player {target_player} does not exist")
+                        send_cards(client_socket, [player.payoff_pile[-1]])
+                    else:
+                        ClientHandler.card_lock.release()
+                        raise ServerError(f"Request to send top card of payoff pile of unrecognized target player {target_player}")
+
+                    ClientHandler.card_lock.release()
+
+                elif request == "Is the game over?":
+
+                    if len(ClientHandler.players) != 2:
+                        raise ServerError("Attempt to check game over without two players in game")
+
+                    ClientHandler.card_lock.acquire()
+                    if not ClientHandler.players[0].payoff_pile or not ClientHandler.players[1].payoff_pile or not ClientHandler.draw_pile:
+                        send_message(client_socket, "Yes")
+                    else:
                         send_message(client_socket, "No")
+                    ClientHandler.card_lock.release()
+
+                elif request == "Who won the game?":
+
+                    if len(ClientHandler.players) != 2:
+                        raise ServerError("Attempt to retrieve final game result without two players in game")
+
+                    ClientHandler.card_lock.acquire()
+
+                    if not ClientHandler.players[0].payoff_pile:
+                        send_message(client_socket, f"Player {ClientHandler.players[0].number}")
+                    elif not ClientHandler.players[1].payoff_pile:
+                        send_message(client_socket,f"Player {ClientHandler.players[1].number}")
+                    elif not ClientHandler.draw_pile:
+                        if len(ClientHandler.players[0].payoff_pile) < len(ClientHandler.players[1].payoff_pile):
+                            send_message(client_socket, f"Player {ClientHandler.players[0].number}")
+                        elif len(ClientHandler.players[0].payoff_pile) > len(ClientHandler.players[1].payoff_pile):
+                            send_message(client_socket,f"Player {ClientHandler.players[1].number}")
+                        elif len(ClientHandler.players[0].payoff_pile) == len(ClientHandler.players[1].payoff_pile):
+                            send_message(client_socket, "Stalemate")
+
+                    ClientHandler.card_lock.release()
+
+                elif request == "How many cards are left in the draw pile?":
+
+                    ClientHandler.card_lock.acquire()
+                    send_message(client_socket, str(len(ClientHandler.draw_pile)))
+                    ClientHandler.card_lock.release()
+
+                elif "What was" in request and "last move" in request:
+                    pattern = r"player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).isdigit():
+                        target_player = int(first_match.group(1))
                     else:
-                        send_message(client_socket, "Undecided")
+                        raise ServerError("Invalid player ID specified in request")
 
-            elif request == "Set up a new game":
-                rematch_setup_lock.acquire()
-                if not rematch_setup_complete:
-                    print("[*] New game requested, resetting game parameters...", flush=True)
-                    card_lock.acquire()
-                    deck = []
-                    payoff_pile1 = []
-                    payoff_pile2 = []
-                    build_piles = [[], [], [], []]
-                    player1_discard_piles = [[], [], [], []]
-                    player2_discard_piles = [[], [], [], []]
-                    draw_pile = []
-                    player1_hand = []
-                    player2_hand = []
-                    card_lock.release()
-                    player1_moves_queue.clear()
-                    player2_moves_queue.clear()
-                    player1_draw_count = 0
-                    player2_draw_count = 0
-                    current_turn_lock.acquire()
-                    current_turn = 0
-                    current_turn_lock.release()
-                    rematch_setup_complete = True
-                else:
-                    player1_rematch = None
-                    player2_rematch = None
-                    rematch_setup_complete = False
-                rematch_setup_lock.release()
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            raise ServerError(
+                                f"Players last move request - Object for player {target_player} does not exist")
 
-            elif request == "Draw pile needs to be reshuffled":
+                        if player.moves_queue:
+                            last_move = player.moves_queue.popleft()
+                            send_message(client_socket, last_move[0])
+                            if last_move[1] is not None:
+                                send_cards(client_socket, [last_move[1]])
+                        else:
+                            send_message(client_socket, "Nothing")
 
-                card_lock.acquire()
-
-                draw_pile_needs_to_be_reshuffled = False
-                cards_to_shuffle = []
-                if len(build_piles[0]) == 12:
-                    cards_to_shuffle += build_piles[0]
-                    build_piles[0] = []
-                    draw_pile_needs_to_be_reshuffled = True
-                if len(build_piles[1]) == 12:
-                    cards_to_shuffle += build_piles[1]
-                    build_piles[1] = []
-                    draw_pile_needs_to_be_reshuffled = True
-                if len(build_piles[2]) == 12:
-                    cards_to_shuffle += build_piles[2]
-                    build_piles[2] = []
-                    draw_pile_needs_to_be_reshuffled = True
-                if len(build_piles[3]) == 12:
-                    cards_to_shuffle += build_piles[3]
-                    build_piles[3] = []
-                    draw_pile_needs_to_be_reshuffled = True
-
-                if draw_pile_needs_to_be_reshuffled:
-                    draw_pile += cards_to_shuffle
-                    random.shuffle(draw_pile)
-
-                card_lock.release()
-
-            elif request == "Create new deck and payoff piles":
-                card_lock.acquire()
-
-                if not deck and not payoff_pile1 and not payoff_pile2 and not draw_pile:
-                    # Got the lock, create the deck, payoff piles and draw pile
-                    print(f"[*] Creating the deck (player {player_number} thread)...", flush=True)
-                    full_deck = create_deck(get_path("assets/card_faces"), num_decks)
-                    print(f"[*] Creating the payoff piles and draw pile (player {player_number} thread)...", flush=True)
-                    payoff_pile1, payoff_pile2, draw_pile = deal(full_deck, payoff_pile_size)
-                else:
-                    print(f"[*] Status update from player {player_number} thread: other thread already created decks and piles", flush=True)
-
-                card_lock.release()
-
-            elif request == "Is the other player still connected?":
-                connection_count_lock.acquire()
-                if connection_count == 1:
-                    send_message(client_socket, "No")
-                elif connection_count == 2:
-                    send_message(client_socket, "Yes")
-                connection_count_lock.release()
-
-            elif "How many cards are in player" in request and "hand" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
-                card_lock.acquire()
-                if target_player == 1:
-                    send_message(client_socket, str(len(player1_hand)))
-                elif target_player == 2:
-                    send_message(client_socket, str(len(player2_hand)))
-                card_lock.release()
-
-            elif "How many cards are left in player" in request and "payoff pile?" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
-
-                card_lock.acquire()
-
-                if target_player == 1:
-                    send_message(client_socket, str(len(payoff_pile1)))
-                elif target_player == 2:
-                    send_message(client_socket, str(len(payoff_pile2)))
-
-                card_lock.release()
-
-            elif "Send the top card of player" in request and "payoff pile" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError(
-                        "Could not parse target player ID from client data")
-
-                card_lock.acquire()
-                if target_player == 1:
-                    send_cards(client_socket, [payoff_pile1[-1]])
-                elif target_player == 2:
-                    send_cards(client_socket, [payoff_pile2[-1]])
-                card_lock.release()
-
-            elif request == "Has the game result been determined?":
-                card_lock.acquire()
-                if not payoff_pile1 or not payoff_pile2 or not draw_pile:
-                    send_message(client_socket, "Yes")
-                else:
-                    send_message(client_socket, "No")
-                card_lock.release()
-
-            elif request == "Who won the game?":
-                card_lock.acquire()
-                if not payoff_pile1:
-                    send_message(client_socket, "Player 1")
-                elif not payoff_pile2:
-                    send_message(client_socket, "Player 2")
-                elif not draw_pile and len(payoff_pile1) < len(payoff_pile2):
-                    send_message(client_socket, "Player 1")
-                elif not draw_pile and len(payoff_pile1) > len(payoff_pile2):
-                    send_message(client_socket, "Player 2")
-                elif not draw_pile and len(payoff_pile1) == len(payoff_pile2):
-                    send_message(client_socket, "Stalemate")
-                card_lock.release()
-
-            elif request == "How many cards are left in the draw pile?":
-
-                card_lock.acquire()
-                send_message(client_socket, str(len(draw_pile)))
-                card_lock.release()
-
-            elif "What was" in request and "last move" in request:
-                target_player = 0
-                pattern = r"player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).isdigit():
-                    target_player = int(first_match.group(1))
-                else:
-                    raise ServerError("Invalid player ID specified in request")
-
-                if target_player == 1:
-                    if player1_moves_queue:
-                        last_move = player1_moves_queue.popleft()
-                        send_message(client_socket, last_move[0])
-                        if last_move[1] is not None:
-                            send_cards(client_socket, [last_move[1]])
                     else:
-                        send_message(client_socket, "Nothing")
-                elif target_player == 2:
-                    if player2_moves_queue:
-                        last_move = player2_moves_queue.popleft()
-                        send_message(client_socket, last_move[0])
-                        if last_move[1] is not None:
-                            send_cards(client_socket, [last_move[1]])
+                        raise ServerError(f"Request to send last move of unrecognized player {target_player}")
+
+
+
+                elif request == "Whose turn is it?":
+
+                    if len(ClientHandler.players) != 2:
+                        raise ServerError("Attempt to determine current turn without two players in game")
+
+                    ClientHandler.current_turn_lock.acquire()
+                    if ClientHandler.current_turn == 0:
+                        if ClientHandler.players[0].payoff_pile[-1].rank > ClientHandler.players[1].payoff_pile[-1].rank:
+                            ClientHandler.current_turn = ClientHandler.players[0].number
+                        elif ClientHandler.players[0].payoff_pile[-1].rank < ClientHandler.players[1].payoff_pile[-1].rank:
+                            ClientHandler.current_turn = ClientHandler.players[1].number
+                        else:
+                            # Determine the first turn of the game randomly if ranks are equal
+                            ClientHandler.current_turn = random.randint(1, 2)
+                    send_message(client_socket, f"Player {ClientHandler.current_turn}")
+                    ClientHandler.current_turn_lock.release()
+
+                elif "ended their turn" in request:
+
+                    player1 = next((p for p in ClientHandler.players if p.number == 1), None)
+                    player2 = next((p for p in ClientHandler.players if p.number == 2), None)
+                    if not player1:
+                        raise ServerError(
+                            "Players last move request - Object for player 1 does not exist")
+                    if not player2:
+                        raise ServerError(
+                            "Players last move request - Object for player 2 does not exist")
+
+                    ClientHandler.current_turn_lock.acquire()
+
+                    current_turn_player = next((p for p in ClientHandler.players if p.number == ClientHandler.current_turn), None)
+                    current_turn_player.draw_count = 0
+
+                    # Switch turns
+                    if ClientHandler.current_turn == 1:
+                        ClientHandler.current_turn = 2
+                    elif ClientHandler.current_turn == 2:
+                        ClientHandler.current_turn = 1
+
+                    ClientHandler.current_turn_lock.release()
+
+                elif "Player" in request and "draws 5 cards" in request:
+                    pattern = r"Player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
                     else:
-                        send_message(client_socket, "Nothing")
-                else:
-                    # Should never get here but raise an exception just in case
-                    raise ServerError("Invalid player ID specified in request")
+                        raise ServerError("Invalid player ID specified in draw request")
 
-            elif request == "Whose turn is it?":
-                current_turn_lock.acquire()
-                if current_turn == 0:
-                    if payoff_pile1[-1].rank > payoff_pile2[-1].rank:
-                        current_turn = 1
-                    elif payoff_pile1[-1].rank < payoff_pile2[-1].rank:
-                        current_turn = 2
-                    elif payoff_pile1[-1].rank == payoff_pile2[-1].rank:
-                        current_turn = random.randint(1, 2)
-                send_message(client_socket, f"Player {current_turn}")
-                current_turn_lock.release()
+                    if target_player == 1 or target_player == 2:
+                        player = next((p for p in ClientHandler.players if p.number == target_player), None)
+                        if not player:
+                            raise ServerError(
+                                f"Player draws 5 cards request - Object for player {target_player} does not exist")
 
-            elif "ended their turn" in request:
-                current_turn_lock.acquire()
-                if current_turn == 1:
-                    player1_draw_count = 0
-                    current_turn = 2
-                elif current_turn == 2:
-                    player2_draw_count = 0
-                    current_turn = 1
-                current_turn_lock.release()
+                        ClientHandler.card_lock.acquire()
 
-            elif "Player" in request and "draws 5 cards" in request:
-                target_player = 0
-                pattern = r"Player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError("Invalid player ID specified in draw request")
-                card_lock.acquire()
-                if target_player == 1:
-                    for _ in range(0, 5, 1):
-                        player1_hand.append(draw_pile.pop())
-                    send_cards(client_socket, player1_hand)
-                elif target_player == 2:
-                    for _ in range(0, 5, 1):
-                        player2_hand.append(draw_pile.pop())
-                    send_cards(client_socket, player2_hand)
+                        for _ in range(5):
+                            player.hand.append(ClientHandler.draw_pile.pop())
+                        send_cards(client_socket, player.hand)
 
-                card_lock.release()
+                        ClientHandler.card_lock.release()
 
-                if target_player == 1:
-                    player1_draw_count += 5
-                elif target_player == 2:
-                    player2_draw_count += 5
+                        player.draw_count += 5
 
-            elif "moved" in request and "from their" in request:
-                last_card_moved_from_hand = None
-                target_player = 0
-                pattern = r"Player (\d)"
-                first_match = re.search(pattern, request)
-                if first_match and first_match.group(1).strip().isdigit():
-                    target_player = int(first_match.group(1).strip())
-                else:
-                    raise ServerError("Invalid player ID specified in move request")
-                card_name = ""
-                pattern = r"moved\b(.*)\bfrom"
-                first_match = re.search(pattern, request)
-                if first_match:
-                    card_name = first_match.group(1).strip()
-                else:
-                    raise ServerError("Invalid card name specified in move request")
-                moving_from = ""
-                pattern = r"their\b(.*)\bto"
-                first_match = re.search(pattern, request)
-                if first_match:
-                    moving_from = first_match.group(1).strip()
-                else:
-                    raise ServerError("Invalid 'moving from' location specified in move request")
-                moving_to = ""
-                pattern = r"to\b(.*)$"
-                first_match = re.search(pattern, request)
-                if first_match:
-                    moving_to = first_match.group(1).strip()
-                else:
-                    raise ServerError("Invalid 'moving to' location specified in move request")
+                    else:
+                        raise ServerError(
+                            f"Player draws 5 cards request - unrecognized player {target_player}")
 
-                if target_player == 1:
+
+                elif "moved" in request and "from their" in request:
+                    last_card_moved_from_hand = None
+                    pattern = r"Player (\d)"
+                    first_match = re.search(pattern, request)
+                    if first_match and first_match.group(1).strip().isdigit():
+                        target_player = int(first_match.group(1).strip())
+                    else:
+                        raise ServerError("Invalid player ID specified in move request")
+                    pattern = r"moved\b(.*)\bfrom"
+                    first_match = re.search(pattern, request)
+                    if first_match:
+                        card_name = first_match.group(1).strip()
+                    else:
+                        raise ServerError("Invalid card name specified in move request")
+                    pattern = r"their\b(.*)\bto"
+                    first_match = re.search(pattern, request)
+                    if first_match:
+                        moving_from = first_match.group(1).strip()
+                    else:
+                        raise ServerError("Invalid 'moving from' location specified in move request")
+                    pattern = r"to\b(.*)$"
+                    first_match = re.search(pattern, request)
+                    if first_match:
+                        moving_to = first_match.group(1).strip()
+                    else:
+                        raise ServerError("Invalid 'moving to' location specified in move request")
+
+                    if target_player != 1 and target_player != 2:
+                        raise ServerError(f"Invalid target player {target_player} specified in move request")
+
+                    player = next((p for p in ClientHandler.players if target_player == p.number), None)
+                    if not player:
+                        raise ServerError(f"Move request - Object for player {target_player} does not exist")
+
                     if moving_from == "hand":
-                        if moving_to == "discard pile 0":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
+
+                        if moving_to.startswith("discard pile") or moving_to.startswith("build pile"):
+
+                            if not moving_to[-1].isdigit():
+                                if moving_to.startswith("discard pile"):
+                                    raise ServerError(f"Move request - Invalid discard pile number to move to ({moving_to[-1]})")
+                                else:
+                                    raise ServerError(f"Move request - Invalid build pile number to move to ({moving_to[-1]})")
+
+                            to_pile_num = int(moving_to[-1])
+
+                            if to_pile_num < 0 or to_pile_num > 3:
+                                if moving_to.startswith("discard pile"):
+                                    raise ServerError(f"Move request - Invalid discard pile number to move to ({to_pile_num}")
+                                else:
+                                    raise ServerError(f"Move request - Invalid build pile number to move to ({to_pile_num})")
+
+                            ClientHandler.card_lock.acquire()
+
+                            card_to_move = next((card for card in player.hand if card.name == card_name), None)
+                            if not card_to_move:
+                                ClientHandler.card_lock.release()
+                                if moving_to.startswith("discard pile"):
+                                    raise ServerError(f"Move request - Card to move from hand into discard pile {to_pile_num} does not exist")
+                                else:
+                                    raise ServerError(f"Move request - Card to move from hand into build pile {to_pile_num} does not exist")
+
+                            player.hand.remove(card_to_move)
                             card_to_move.position = CardPosition.FACE_UP
-                            player1_discard_piles[0].append(card_to_move)
+
+                            if moving_to.startswith("discard pile"):
+                                player.discard_piles[to_pile_num].append(card_to_move)
+                            else:
+                                ClientHandler.build_piles[to_pile_num].append(card_to_move)
+
                             last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "discard pile 1":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player1_discard_piles[1].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "discard pile 2":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player1_discard_piles[2].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "discard pile 3":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player1_discard_piles[3].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 0":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[0].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[1].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[2].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player1_hand if card.name == card_name][0]
-                            player1_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[3].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
+                            ClientHandler.card_lock.release()
+
                         else:
                             raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 0":
-                        card_lock.acquire()
-                        card_to_move = player1_discard_piles[0][-1]
+
+                    elif moving_from.startswith("discard pile"):
+
+                        if not moving_from[-1].isdigit():
+                            raise ServerError(f"Move request - Invalid discard pile number to move from ({moving_from[-1]})")
+
+                        from_pile_num = int(moving_from[-1])
+
+                        if from_pile_num < 0 or from_pile_num > 3:
+                            raise ServerError(f"Move request - Invalid discard pile number to move from ({from_pile_num})")
+
+                        ClientHandler.card_lock.acquire()
+
+                        card_to_move = player.discard_piles[from_pile_num].pop()
+
                         # Top card should have the same name as the card in the move request
                         if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 0 did not match card name in move request")
-                        player1_discard_piles[0].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
+                            ClientHandler.card_lock.release()
+                            raise ServerError(f"Name of top card on discard pile {from_pile_num} did not match card name in move request")
+
+                        if moving_to.startswith("build pile"):
+                            if not moving_to[-1].isdigit():
+                                ClientHandler.card_lock.release()
+                                raise ServerError(f"Move request - Invalid build pile number to move to ({moving_to[-1]})")
+
+                            to_pile_num = int(moving_to[-1])
+
+                            if to_pile_num < 0 or to_pile_num > 3:
+                                ClientHandler.card_lock.release()
+                                raise ServerError(f"Move request - Invalid build pile number to move to ({to_pile_num})")
+
+                            ClientHandler.build_piles[to_pile_num].append(card_to_move)
+                            ClientHandler.card_lock.release()
                         else:
-                            card_lock.release()
+                            ClientHandler.card_lock.release()
                             raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 1":
-                        card_lock.acquire()
-                        card_to_move = player1_discard_piles[1][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 1 did not match card name in move request")
-                        player1_discard_piles[1].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 2":
-                        card_lock.acquire()
-                        card_to_move = player1_discard_piles[2][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 2 did not match card name in move request")
-                        player1_discard_piles[2].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 3":
-                        card_lock.acquire()
-                        card_to_move = player1_discard_piles[3][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 3 did not match card name in move request")
-                        player1_discard_piles[3].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
+
 
                     elif moving_from == "payoff pile":
-                        card_lock.acquire()
-                        card_to_move = payoff_pile1[-1]
+                        ClientHandler.card_lock.acquire()
+                        card_to_move = player.payoff_pile.pop()
+
                         if card_to_move.name != card_name:
+                            ClientHandler.card_lock.release()
                             raise ServerError("Name of top card on payoff pile did not match card name in move request")
-                        payoff_pile1.pop()
 
-                        if payoff_pile1:
-                            # Flip over next card
-                            payoff_pile1[-1].position = CardPosition.FACE_UP
+                        # Flip over top card if payoff pile still has cards
+                        if player.payoff_pile:
+                            player.payoff_pile[-1].position = CardPosition.FACE_UP
 
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
+                        if moving_to.startswith("build pile"):
+
+                            if not moving_to[-1].isdigit():
+                                raise ServerError(f"Move request - Invalid build pile number to move to ({moving_to[-1]})")
+
+                            to_pile_num = int(moving_to[-1])
+
+                            if to_pile_num < 0 or to_pile_num > 3:
+                                raise ServerError(f"Move request - Invalid build pile number to move to ({to_pile_num})")
+
+                            ClientHandler.build_piles[to_pile_num].append(card_to_move)
+                            ClientHandler.card_lock.release()
+
                         else:
-                            card_lock.release()
+                            ClientHandler.card_lock.release()
                             raise ServerError("Invalid 'moving to' location specified in move request")
                     else:
                         raise ServerError("Invalid 'moving from' location specified in move request")
 
                     if moving_from == "hand":
-                        player1_moves_queue.append((f"Player 1 moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
+                        player.moves_queue.append((f"Player {target_player} moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
                     else:
-                        player1_moves_queue.append((f"Player 1 moved {card_name} from {moving_from} to {moving_to}", None))
+                        player.moves_queue.append((f"Player {target_player} moved {card_name} from {moving_from} to {moving_to}", None))
 
-                elif target_player == 2:
-                    if moving_from == "hand":
-                        if moving_to == "discard pile 0":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player2_discard_piles[0].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "discard pile 1":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player2_discard_piles[1].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "discard pile 2":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player2_discard_piles[2].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "discard pile 3":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            player2_discard_piles[3].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 0":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[0].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[1].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[2].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            card_lock.acquire()
-                            # if multiple items in list take first one
-                            card_to_move = [card for card in player2_hand if card.name == card_name][0]
-                            player2_hand.remove(card_to_move)
-                            card_to_move.position = CardPosition.FACE_UP
-                            build_piles[3].append(card_to_move)
-                            last_card_moved_from_hand = card_to_move
-                            card_lock.release()
-                        else:
-                            raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 0":
-                        card_lock.acquire()
-                        card_to_move = player2_discard_piles[0][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 0 did not match card name in move request")
-                        player2_discard_piles[0].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 1":
-                        card_lock.acquire()
-                        card_to_move = player2_discard_piles[1][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 1 did not match card name in move request")
-                        player2_discard_piles[1].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 2":
-                        card_lock.acquire()
-                        card_to_move = player2_discard_piles[2][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 2 did not match card name in move request")
-                        player2_discard_piles[2].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
-                    elif moving_from == "discard pile 3":
-                        card_lock.acquire()
-                        card_to_move = player2_discard_piles[3][-1]
-                        # Top card should have the same name as the card in the move request
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on discard pile 3 did not match card name in move request")
-                        player2_discard_piles[3].pop()
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
+                else:
+                    print(f"[*] Client {client_address[0]}:{client_address[1]} sent incorrect data", flush=True)
+                    raise ServerError("Incorrect data received from client")
 
-                    elif moving_from == "payoff pile":
-                        card_lock.acquire()
-                        card_to_move = payoff_pile2[-1]
-                        if card_to_move.name != card_name:
-                            raise ServerError("Name of top card on payoff pile did not match card name in move request")
-                        payoff_pile2.pop()
-                        if payoff_pile2:
-                            # Flip over next card
-                            payoff_pile2[-1].position = CardPosition.FACE_UP
-                        if moving_to == "build pile 0":
-                            build_piles[0].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 1":
-                            build_piles[1].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 2":
-                            build_piles[2].append(card_to_move)
-                            card_lock.release()
-                        elif moving_to == "build pile 3":
-                            build_piles[3].append(card_to_move)
-                            card_lock.release()
-                        else:
-                            card_lock.release()
-                            raise ServerError("Invalid 'moving to' location specified in move request")
+        except ServerError as se:
+            print(f"[*] Error handling client {client_address[0]}:{client_address[1]}: {se}", flush=True)
+        except ConnectionResetError:
+            print("[*] Connection reset by client (client disconnected)", flush=True)
+        except BrokenPipeError:
+            print("[*] Client disconnected in the middle of an operation", flush=True)
+        finally:
+            client_socket.close()
+            ClientHandler.connection_count_lock.acquire()
+            ClientHandler.connection_count -= 1
+
+            ClientHandler.card_lock.acquire()
+            ClientHandler.deck = []
+            ClientHandler.draw_pile = []
+            ClientHandler.build_piles = [[], [], [], []]
+            ClientHandler.card_lock.release()
+
+            match ClientHandler.connection_count:
+                case 0:
+                    ClientHandler.players.clear()
+                case 1:
+                    this_player = next((p for p in ClientHandler.players if p.number == self.player_number), None)
+                    if this_player:
+                        ClientHandler.players.remove(this_player)
                     else:
-                        raise ServerError("Invalid 'moving from' location specified in move request")
+                        ClientHandler.connection_count_lock.release()
+                        raise ServerError("Could not find and remove current player object")
 
-                    if moving_from == "hand":
-                        player2_moves_queue.append((f"Player 2 moved {card_name} from {moving_from} to {moving_to}", last_card_moved_from_hand))
+                    if len(ClientHandler.players) == 1:
+                        ClientHandler.players[0].reset()
                     else:
-                        player2_moves_queue.append((f"Player 2 moved {card_name} from {moving_from} to {moving_to}", None))
+                        ClientHandler.connection_count_lock.release()
+                        raise ServerError("Current number of remaining players does not match connection count")
+                case _:
+                    ClientHandler.connection_count_lock.release()
+                    raise ServerError("Connection count after player disconnect is not 0 or 1")
 
-
-            else:
-                print(f"[*] Client {client_address[0]}:{client_address[1]} sent incorrect data", flush=True)
-                raise ServerError("Incorrect data received from client")
-
-    except ServerError as se:
-        print(f"[*] Error handling client {client_address[0]}:{client_address[1]}: {se}", flush=True)
-    except ConnectionResetError:
-        print(f"[*] Connection reset by client (client disconnected)", flush=True)
-    except BrokenPipeError:
-        print(f"[*] Client disconnected in the middle of an operation", flush=True)
-    finally:
-        client_socket.close()
-        connection_count_lock.acquire()
-        connection_count -= 1
-        if connection_count == 0:
-            card_lock.acquire()
-            deck = []
-            payoff_pile1 = []
-            payoff_pile2 = []
-            draw_pile = []
-            player1_hand = []
-            player2_hand = []
-            build_piles = [[], [], [], []]
-            player1_discard_piles = [[], [], [], []]
-            player2_discard_piles = [[], [], [], []]
-            card_lock.release()
-            player1_name = ""
-            player2_name = ""
-            player1_moves_queue.clear()
-            player2_moves_queue.clear()
-            player1_draw_count = 0
-            player2_draw_count = 0
-            player1_rematch = None
-            player2_rematch = None
-        connection_count_lock.release()
-        current_turn_lock.acquire()
-        current_turn = 0
-        current_turn_lock.release()
-        print(f"[-] Connection with {client_address[0]}:{client_address[1]} closed.", flush=True)
+            ClientHandler.connection_count_lock.release()
+            ClientHandler.current_turn_lock.acquire()
+            ClientHandler.current_turn = 0
+            ClientHandler.current_turn_lock.release()
+            print(f"[-] Connection with {client_address[0]}:{client_address[1]} closed.", flush=True)
 
 def run_server(valid_port: int, num_decks: int, payoff_pile_size: int) -> None:
 
@@ -884,19 +655,21 @@ def run_server(valid_port: int, num_decks: int, payoff_pile_size: int) -> None:
         while True:
             try:
                 client_socket, addr = server.accept()
-                client_handler = threading.Thread(target=handle_client, args=(client_socket, addr, num_decks, payoff_pile_size,))
-                client_handler.start()
+                client_handler = ClientHandler()
+                handler_thread = threading.Thread(target=client_handler.handle_client, args=(client_socket, addr, num_decks, payoff_pile_size,))
+                handler_thread.start()
             except socket.timeout:
-                pass
+                print("Socket timed out! Consider increasing timeout value", flush=True)
+
     except KeyboardInterrupt:
         print("\n[*] KeyboardInterrupt received. Server shutting down...", flush=True)
-    except OSError as ose:
-        if "Address already in use" in str(ose):
+    except OSError as err:
+        if "Address already in use" in str(err):
             print(f"[*] Error binding to address {HOST}:{valid_port}: Address already in use", flush=True)
-        elif "Permission denied" in str(ose):
+        elif "Permission denied" in str(err):
             # Should never reach here due to prior error checking
-            print(f"[*] Error binding to valid_port {valid_port}: Did you specify a privileged port?", flush=True)
-        elif "Invalid argument" in str(ose):
+            print(f"[*] Error binding to port {valid_port}: Did you specify a privileged port?", flush=True)
+        elif "Invalid argument" in str(err):
             # Should never reach here due to prior error checking
             print(f"[*] Error binding to port {valid_port}: Invalid port number specified", flush=True)
     finally:
@@ -908,7 +681,7 @@ def main():
     if platform.system() == "Windows":
         config_file_path = Path("C:/ProgramData") / "jscdev909" / "spite_and_malice_server" / "config.toml"
     elif platform.system() == "Darwin" or platform.system() == "Linux":
-        config_file_path = Path(os.getenv("HOME")) / ".config" / "spite_and_malice_server" / "config.toml"
+        config_file_path = Path.home() / ".config" / "spite_and_malice_server" / "config.toml"
     else:
         unknown_os = True
         config_file_path = Path()

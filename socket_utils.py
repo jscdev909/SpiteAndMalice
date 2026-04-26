@@ -3,7 +3,7 @@ import struct
 
 HEADER_SIZE = 4
 
-def recv_all(sock: socket.socket, n: int):
+def recv_all(sock: socket.socket, n: int) -> None | bytes:
     raw_data = b''
     while len(raw_data) < n:
         packet = sock.recv(n - len(raw_data))
@@ -25,4 +25,4 @@ def receive_message(sock: socket.socket) -> str:
     return data
 
 def send_message(sock: socket.socket, message: str) -> None:
-    sock.sendall(struct.pack("!I", len(message)) + message.encode())
+    sock.sendall(struct.pack(f"!I{len(message)}s", len(message), message.encode()))
