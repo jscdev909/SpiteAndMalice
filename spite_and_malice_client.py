@@ -315,7 +315,7 @@ def run_game(server_socket: socket.socket,
 
     current_turn = 0
 
-    draggable_cards = []
+    draggable_cards: list[Card] = []
     draggable_cards_set = False
     draw_pile_needs_to_be_reshuffled = False
 
@@ -323,16 +323,16 @@ def run_game(server_socket: socket.socket,
 
     first_turn = True
 
-    discard_piles1 = [[], [], [], []]
+    discard_piles1: list[list[Card]] = [[], [], [], []]
     discard_piles1_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
 
-    discard_piles2 = [[], [], [], []]
+    discard_piles2: list[list[Card]] = [[], [], [], []]
     discard_piles2_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
 
-    build_piles = [[], [], [], []]
+    build_piles: list[list[Card]] = [[], [], [], []]
     build_piles_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
 
-    current_hand = []
+    current_hand: list[Card] = []
 
     # Make sure card_back has a default value (the red card back surface)
     card_back = pygame.image.load(get_path(Path("assets") / "card_backs" / "card_back_red.png")).convert_alpha()
@@ -531,7 +531,11 @@ def run_game(server_socket: socket.socket,
                     elif moved_from == "payoff pile":
                         if moved_to == "build pile 0":
                             if opponent_player == 1:
-                                build_piles[0].append(payoff_pile1_top_card)
+
+                                if payoff_pile1_top_card is not None:
+                                    build_piles[0].append(payoff_pile1_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 1 to build pile 0")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -548,7 +552,11 @@ def run_game(server_socket: socket.socket,
                                     payoff_pile1_top_card = None
 
                             elif opponent_player == 2:
-                                build_piles[0].append(payoff_pile2_top_card)
+
+                                if payoff_pile2_top_card is not None:
+                                    build_piles[0].append(payoff_pile2_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 2 to build pile 0")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -566,7 +574,11 @@ def run_game(server_socket: socket.socket,
 
                         elif moved_to == "build pile 1":
                             if opponent_player == 1:
-                                build_piles[1].append(payoff_pile1_top_card)
+
+                                if payoff_pile1_top_card is not None:
+                                    build_piles[1].append(payoff_pile1_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 1 to build pile 1")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -583,7 +595,11 @@ def run_game(server_socket: socket.socket,
                                     payoff_pile1_top_card = None
 
                             elif opponent_player == 2:
-                                build_piles[1].append(payoff_pile2_top_card)
+
+                                if payoff_pile2_top_card is not None:
+                                    build_piles[1].append(payoff_pile2_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 2 to build pile 1")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -601,7 +617,11 @@ def run_game(server_socket: socket.socket,
 
                         elif moved_to == "build pile 2":
                             if opponent_player == 1:
-                                build_piles[2].append(payoff_pile1_top_card)
+
+                                if payoff_pile1_top_card is not None:
+                                    build_piles[2].append(payoff_pile1_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 1 to build pile 2")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -618,7 +638,11 @@ def run_game(server_socket: socket.socket,
                                     payoff_pile1_top_card = None
 
                             elif opponent_player == 2:
-                                build_piles[2].append(payoff_pile2_top_card)
+
+                                if payoff_pile2_top_card is not None:
+                                    build_piles[2].append(payoff_pile2_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 2 to build pile 2")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -636,7 +660,11 @@ def run_game(server_socket: socket.socket,
 
                         elif moved_to == "build pile 3":
                             if opponent_player == 1:
-                                build_piles[3].append(payoff_pile1_top_card)
+
+                                if payoff_pile1_top_card is not None:
+                                    build_piles[3].append(payoff_pile1_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 1 to build pile 3")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -653,7 +681,11 @@ def run_game(server_socket: socket.socket,
                                     payoff_pile1_top_card = None
 
                             elif opponent_player == 2:
-                                build_piles[3].append(payoff_pile2_top_card)
+
+                                if payoff_pile2_top_card is not None:
+                                    build_piles[3].append(payoff_pile2_top_card)
+                                else:
+                                    raise ClientError("Attempted to add nonexistent top card of payoff pile 2 to build pile 3")
 
                                 send_message(server_socket, f"How many cards are left in player {opponent_player}'s payoff pile?")
                                 data = receive_message(server_socket)
@@ -1648,7 +1680,7 @@ def run_game(server_socket: socket.socket,
                                      payoff_pile2_top_card.rect)
 
         if player_number == 1:
-            for x in range(0, len(discard_piles1_rects), 1):
+            for x in range(len(discard_piles1_rects)):
                 if discard_piles1[x]:
                     for card in discard_piles1[x]:
                         if card != card_being_dragged:
@@ -1663,7 +1695,7 @@ def run_game(server_socket: socket.socket,
                 else:
                     discard_piles1_rects[x] = pygame.draw.rect(display_surface, WHITE, (225 + (x * 125), 625, 100, 150), 2)
         elif player_number == 2:
-            for x in range(0, len(discard_piles2_rects), 1):
+            for x in range(len(discard_piles2_rects)):
                 if discard_piles2[x]:
                     for card in discard_piles2[x]:
                         if card != card_being_dragged:
@@ -1679,7 +1711,7 @@ def run_game(server_socket: socket.socket,
                     discard_piles2_rects[x] = pygame.draw.rect(display_surface, WHITE,(225 + (x * 125), 625, 100, 150), 2)
 
         if player_number == 1:
-            for y in range(0, len(build_piles_rects), 1):
+            for y in range(len(build_piles_rects)):
                 if build_piles[y]:
                     for card in build_piles[y]:
                         if card.position == CardPosition.FACE_UP:
@@ -1693,7 +1725,7 @@ def run_game(server_socket: socket.socket,
                 else:
                     build_piles_rects[y] = pygame.draw.rect(display_surface, WHITE, (225 + (y * 125), 400, 100, 150), 2)
         elif player_number == 2:
-            for y in range(0, len(build_piles_rects), 1):
+            for y in range(len(build_piles_rects)):
                 if build_piles[y]:
                     for card in build_piles[y]:
                         if card.position == CardPosition.FACE_UP:
@@ -1709,7 +1741,7 @@ def run_game(server_socket: socket.socket,
 
 
         if player_number == 1:
-            for z in range(0, len(discard_piles2_rects), 1):
+            for z in range(len(discard_piles2_rects)):
                 if discard_piles2[z]:
                     for card in discard_piles2[z]:
                         if card.position == CardPosition.FACE_UP:
@@ -1723,7 +1755,7 @@ def run_game(server_socket: socket.socket,
                 else:
                     discard_piles2_rects[z] = pygame.draw.rect(display_surface, WHITE,(WINDOW_WIDTH - 325 - (z * 125), 175, 100, 150), 2)
         elif player_number == 2:
-            for z in range(0, len(discard_piles1_rects), 1):
+            for z in range(len(discard_piles1_rects)):
                 if discard_piles1[z]:
                     for card in discard_piles1[z]:
                         if card.position == CardPosition.FACE_UP:
@@ -2005,9 +2037,15 @@ def run_game(server_socket: socket.socket,
                         display_surface.blit(status_text, status_rect)
                         pygame.display.update()
 
-                        discard_piles1 = [[], [], [], []]
-                        discard_piles2 = [[], [], [], []]
-                        build_piles = [[], [], [], []]
+                        discard_piles1: list[list[Card]] = [[], [], [], []]
+                        discard_piles1_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
+
+                        discard_piles2: list[list[Card]] = [[], [], [], []]
+                        discard_piles2_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
+
+                        build_piles: list[list[Card]] = [[], [], [], []]
+                        build_piles_rects: list[pygame.Rect] = [pygame.Rect(), pygame.Rect(), pygame.Rect(), pygame.Rect()]
+
                         draggable_cards_set = False
                         first_turn = True
                         current_hand = []
